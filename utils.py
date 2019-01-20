@@ -1,7 +1,3 @@
-
-
-
-
 coefs_dict = {
     'gyro_coef': 250.0/32768.0,
     'acc_coef': 2.0/32768.0,
@@ -28,8 +24,31 @@ def normalize_MPU9250_data(df, coefs_dict=None):
 
     return df
 
+def split_df(df, n_chunks, chunk_lenght=100 * 600):
+    n_samples = df.shape[0]
 
+    max_possible_chunks = n_samples // chunk_lenght
+    # print(max_possible_chunks)
+    n_chunks = min(max_possible_chunks, n_chunks)
 
+    if n_chunks < 1:
+        return df
+
+    residual_sum = n_samples - n_chunks * chunk_lenght
+    residual = residual_sum // (2 * n_chunks)
+    # print(n_chunks)
+    # print(residual_sum)
+    # print(residual)
+
+    chunks_list = []
+
+    for n_chunk in range(n_chunks):
+        index_start = residual * (2 * n_chunk + 1) + n_chunk * chunk_lenght
+        index_end = residual * (2 * n_chunk + 1) + (n_chunk + 1) * chunk_lenght
+        df_chunk = df.iloc[index_start:index_end, :].copy().reset_index(drop=True)
+        chunks_list.append(df_chunk)
+
+    return chunks_list
 
 
 
