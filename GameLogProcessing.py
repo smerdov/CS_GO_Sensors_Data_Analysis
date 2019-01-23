@@ -1,0 +1,133 @@
+# -*- coding: utf-8 -*-
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import json
+import joblib
+from utils import normalize_MPU9250_data, split_df, string2json
+from ChairAnalyzer import ChairAnalyser
+
+plt.interactive(True)
+pd.options.display.max_columns = 15
+pic_prefix = 'pic/'
+data_path = 'Anonimised Data/Data'
+processed_data_path = 'data/players_data_processed'
+
+data_dict = joblib.load('data/data_dict')
+
+def check_player_is_killed(parameters_dict):
+    # First condition: event is that somebody dies
+    # Second condition: dying player is skoltech experimental rat
+    return ('userid' in parameters_dict) and (parameters_dict['userid'].find('koltech') != -1)
+
+
+gamedata_dict = {}
+
+for player_id, player_data_dict in data_dict.items():
+    if 'gamelog' not in player_data_dict:
+        continue
+
+    mask_player_events = player_data_dict['gamelog']['parameters'].apply(lambda x: x.find('koltech')) != -1
+    df_gamelog = player_data_dict['gamelog'].loc[mask_player_events, :]
+    df_gamelog['parameters'] = df_gamelog['parameters'].apply(string2json)
+    df_gamelog['health'] = df_gamelog['parameters'].apply(lambda x: int(x['health']) if 'health' in x else None)
+    mask_somebody_is_killed = df_gamelog['health'] == 0
+
+    mask_player_is_killed = mask_somebody_is_killed & df_gamelog.loc[:, 'parameters'].apply(check_player_is_killed)
+    mask_player_kills = mask_somebody_is_killed & ~mask_player_is_killed
+
+    times_is_killed = df_gamelog.loc[mask_player_is_killed, 'time'].values
+    times_kills = df_gamelog.loc[mask_player_kills, 'time'].values
+
+    player_gamedata_dict = {
+        'times_is_killed': times_is_killed,
+        'times_kills': times_kills,
+    }
+
+    gamedata_dict[player_id] = player_gamedata_dict
+
+
+# gamedata_dict['9'].keys()
+# gamedata_dict['9']['times_is_killed']
+# gamedata_dict['9']['times_kills']
+
+
+joblib.dump(gamedata_dict, 'data/gamedata_dict')
+
+
+
+
+
+data_dict['2']['gamelog']['parameters']
+
+
+
+
+
+
+# with open(gamelog_path, 'rb') as f:
+#     gamelog = f.readlines()
+#
+# # gamelog = [string.decode() for string in gamelog]
+# gamelog_lenght_initial = len(gamelog)
+# gamelog = [string for string in gamelog if string.find(b'koltech') != -1]
+# gamelog_lenght_filtered = len(gamelog)
+# print(f'gamelog_lenght_initial = {gamelog_lenght_initial}, gamelog_lenght_filtered = {gamelog_lenght_filtered}')
+#
+# # with open('tmp/gamelog.csv', 'wb') as f:
+# with open(processed_data_path + '/gamelog.csv', 'wb') as f:
+#     # for line in gamelog:
+#     #     f.write(line)
+#     f.writelines(gamelog)
+#
+# df_gamelog = pd.read_csv('tmp/gamelog.csv', header=None)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+times = pd.to_datetime(df_gamelog.loc[mask_killed, 'time'])
+np.diff(times.values) / 10 ** 9
+
+
+(times.iloc[1:] - times.iloc[:-1].values).iloc[10]
+
+
+
+(df_gamelog['health_is_0']).sum()
+
+
+plt.plot(df_gamelog['health_is_0'])
+
+
+# TODO: check player behaviour right after death
+
+
+df_gamelog['event'].value_counts()
+
+
+mask_fire = df_gamelog['event'] == 'weapon_fire'
+
+df_gamelog.loc[mask_fire, 'parameters']
+fire_times = pd.to_datetime(df_gamelog.loc[mask_fire, 'time'])
+(fire_times.values[1:] - fire_times.values[:-1]).min()
+
+df_fire = pd.DataFrame(list(df_gamelog.loc[mask_fire, 'parameters'].values))
+
+df_fire.info()
+
+
+
+

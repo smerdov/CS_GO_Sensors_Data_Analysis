@@ -1,3 +1,5 @@
+import json
+
 coefs_dict = {
     'gyro_coef': 250.0/32768.0,
     'acc_coef': 2.0/32768.0,
@@ -32,7 +34,7 @@ def split_df(df, n_chunks, chunk_lenght=100 * 600):
     n_chunks = min(max_possible_chunks, n_chunks)
 
     if n_chunks < 1:
-        return df
+        return [df.copy()]
 
     residual_sum = n_samples - n_chunks * chunk_lenght
     residual = residual_sum // (2 * n_chunks)
@@ -51,4 +53,9 @@ def split_df(df, n_chunks, chunk_lenght=100 * 600):
     return chunks_list
 
 
+def string2json(string):
+    string = string.replace("\'", "\"")
+    string_json = json.loads(string)
+
+    return string_json
 
