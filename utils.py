@@ -1,4 +1,5 @@
 import json
+import pandas as pd
 
 coefs_dict = {
     'gyro_coef': 250.0/32768.0,
@@ -53,9 +54,75 @@ def split_df(df, n_chunks, chunk_lenght=100 * 600):
     return chunks_list
 
 
+def get_chunks_timestamps(timestamp_min, timestamp_max, chunk_duration, max_chunks):
+    timestamp_diff = timestamp_max - timestamp_min
+    max_possible_chunks = int(timestamp_diff // chunk_duration)
+    # print(max_possible_chunks)
+    if max_chunks is not None:
+        n_chunks = min(max_possible_chunks, max_chunks)
+    else:
+        n_chunks = max_possible_chunks
+
+    # print(n_chunks)
+
+    if n_chunks == 0:
+        return [timestamp_min, timestamp_max]
+
+    residual_sum = timestamp_diff - n_chunks * chunk_duration
+    # residual = residual_sum // (2 * n_chunks)
+    residual = residual_sum / (2 * n_chunks)
+    # print(residual)
+
+    timestamp_start_end_list = []
+
+    for n_chunk in range(n_chunks):
+        timestamp_start = timestamp_min + residual * (2 * n_chunk + 1) + n_chunk * chunk_duration
+        timestamp_end = timestamp_min + residual * (2 * n_chunk + 1) + (n_chunk + 1) * chunk_duration
+        timestamp_start_end_list.append([timestamp_start, timestamp_end])
+
+    # print(timestamp_start_end_list)
+    return timestamp_start_end_list
+
+
+def split_dfs_by_time(df_list, timestamp_min, timestamp_max, chunk_duration=10 * 60, max_chunks=3, time_col='time'):
+    timestamp_start_end_list = get_chunks_timestamps(timestamp_min, timestamp_max, chunk_duration, max_chunks)
+
+    df_chunks_list = []
+
+    for df in df_list:
+        timestamp_column = df[time_col]
+        # timestamp_column = pd.to_datetime(df[time_col]).apply(lambda x: x.timestamp())
+        # print(timestamp_column)
+        # timestamp_min = timestamp_column.min()
+        # timestamp_max = timestamp_column.max()
+
+        chunks_list = []
+
+        for timestamp_start, timestamp_end in timestamp_start_end_list:
+            mask = (timestamp_start <= timestamp_column) & (timestamp_column <= timestamp_end)
+            df_chunk = df.loc[mask, :].copy().reset_index(drop=True)
+            df_chunk[time_col] = df_chunk[time_col] - timestamp_start # Important
+            chunks_list.append(df_chunk)
+
+        df_chunks_list.append(chunks_list)
+
+    return df_chunks_list
+
+
 def string2json(string):
     string = string.replace("\'", "\"")
     string_json = json.loads(string)
 
     return string_json
 
+def get_interval_from_moment(moment, interval_start, interval_end):
+    return [moment + interval_start, moment + interval_end]
+
+def get_intervals_from_moments(moments, interval_start=-3, interval_end=3):
+    intervals = []
+
+    for moment in moments:
+        interval = get_interval_from_moment(moment, interval_start=interval_start, interval_end=interval_end)
+        intervals.append(interval)
+
+    return intervals

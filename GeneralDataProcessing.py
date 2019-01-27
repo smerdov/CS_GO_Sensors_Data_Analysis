@@ -51,6 +51,7 @@ for player_folder in player_folders:
 
         player_data_dict[data_source].sort_values(by='time', inplace=True)
         player_data_dict[data_source].reset_index(drop=True, inplace=True)
+        player_data_dict[data_source]['time'] = pd.to_datetime(player_data_dict[data_source]['time']).apply(lambda x: x.timestamp())
 
     data_dict[player_id] = player_data_dict
 
