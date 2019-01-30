@@ -16,7 +16,7 @@ player_folders = [f"{data_path}/{folder}" for folder in player_folders if not fo
 
 data_dict = {}
 
-data_sources_list = ['schairlog', 'gamelog']  # List sources for analysis here
+data_sources_list = ['schairlog', 'gamelog', 'hrm', 'envibox', 'datalog']  # List sources for analysis here
 
 # chair_data_columns = ['time', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'mag_x', 'mag_y', 'mag_z']
 
@@ -48,6 +48,22 @@ for player_folder in player_folders:
     for data_source in player_data_dict.keys():
         if data_source == 'gamelog':
             player_data_dict[data_source].rename(columns={'Unnamed: 0': 'time'}, inplace=True)
+
+        if data_source == 'hrm':
+            mask_fake_data = player_data_dict[data_source]['hrm'] < 45
+            player_data_dict[data_source] = player_data_dict[data_source].loc[~mask_fake_data, :]
+
+        if data_source == 'datalog':
+            player_data_dict[data_source].drop(columns=['time_host', 'n'], inplace=True)
+            rename_dict = {
+                'sensor1': 'hrm2',
+                'sensor2': 'resistance',
+                'sensor3': 'muscle_activity',
+            }
+            player_data_dict[data_source].rename(columns=rename_dict, inplace=True)
+
+        if data_source == 'envibox':
+            player_data_dict[data_source].drop(columns=['time_host', 'n'], inplace=True)
 
         player_data_dict[data_source].sort_values(by='time', inplace=True)
         player_data_dict[data_source].reset_index(drop=True, inplace=True)

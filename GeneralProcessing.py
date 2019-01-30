@@ -4,67 +4,22 @@ import matplotlib.pyplot as plt
 import os
 import joblib
 from utils import normalize_MPU9250_data, split_df, get_intervals_from_moments, EventIntervals
-from ChairAnalyser import ChairAnalyser
-from GeneralAnalyser import plot_measurements
+from GeneralAnalyser import GeneralAnalyser, plot_measurements
 
-plt.interactive(True)
+# plt.interactive(True)
 pd.options.display.max_columns = 15
 pic_prefix = 'pic/'
 # data_path = 'data/CSV'
 # data_path = 'Anonimised Data/Data'
 
-# TODO: extract "online" features
-
 # sessions_dict = joblib.load('data/sessions_dict')
 sessions_dict = joblib.load('data/sessions_dict')
 gamedata_dict = joblib.load('data/gamedata_dict')
 
-def get_chair_features(df_chair, session_id):
-    chair_analyser = ChairAnalyser(
-        df=df_chair,
-        pic_prefix=pic_prefix,
-        sensor_name='chair',
-        session_id=session_id,
-        measurement_interval=0.01,
-    )  # + f'_{n_chunk}')
-    nonstationary_values_portion = chair_analyser.get_nonstationary_values_portion()
-    lean_back_portion = chair_analyser.get_lean_back_portion()
-    oscillations = chair_analyser.get_oscillation_intensity()
-
-    chair_features = pd.concat([nonstationary_values_portion, lean_back_portion, oscillations])
-
-    return chair_features
-
-chair_features_list = []
-
-# ##### Testing zone
-#
-# session_id = 10
-# df_chair = sessions_dict[session_id]['schairlog']
-# # df_chair['time'] = pd.to_datetime(df_chair['time']).apply(lambda x: x.timestamp())
-#
-# chair_analyser = ChairAnalyser(df_chair, pic_prefix=pic_prefix, measurement_interval=0.01, name=session_id)
-#
-# shootout_times_start_end = gamedata_dict[session_id]['shootout_times_start_end']
-#
-# shootouts_dict = {
-#     'label': 'shootouts',
-#     'intervals_list': shootout_times_start_end,
-# }
-#
-# mask_dicts_list = [shootouts_dict]
-#
-# chair_analyser.plot_measurements_timeline(sensors=['acc', 'gyro'], mask_dicts_list=mask_dicts_list)
-#
-#
-#
-# get_chair_features(df_chair, session_id)
-#
-#
-# #####
-
 sensors_columns_dict = {
-    'schairlog': ['acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z'],
+    'hrm': ['hrm'],
+    'envibox': ['als', 'mic', 'humidity', 'temperature', 'co2'],
+    'datalog': ['hrm2', 'resistance', 'muscle_activity']
 }
 
 sensors_list = list(sensors_columns_dict.keys())
@@ -99,7 +54,7 @@ for session_id, session_data_dict in sessions_dict.items():
 
     for sensor_name in sensors_columns_dict:
         df = session_data_dict[sensor_name]
-        analyser = ChairAnalyser(df, pic_prefix=pic_prefix, sensor_name=sensor_name, session_id=session_id)
+        analyser = GeneralAnalyser(df, pic_prefix=pic_prefix, sensor_name=sensor_name, session_id=session_id)
         for column in sensors_columns_dict[sensor_name]:
             analyser_column_pairs_list.append([analyser, column])
 
@@ -109,7 +64,7 @@ for session_id, session_data_dict in sessions_dict.items():
         session_id=session_id,
         event_intervals_list=events_intervals_list,
         n_rows=3,  # TODO: automatically adjust number of rows and cols
-        n_cols=2,
+        n_cols=3,
         figsize=(21, 15),
         plot_suptitle=True,
     )
@@ -118,9 +73,4 @@ for session_id, session_data_dict in sessions_dict.items():
 
 
 
-df_chair_features = pd.DataFrame(chair_features_list)
-df_chair_features.reset_index(inplace=True)
-df_chair_features.rename(columns={'index': 'session_id'}, inplace=True)
-
-df_chair_features.to_csv('data/chair_features.csv', index=False)
 

@@ -1,5 +1,6 @@
 import json
 import pandas as pd
+import dateutil.parser
 
 coefs_dict = {
     'gyro_coef': 250.0/32768.0,
@@ -126,3 +127,48 @@ def get_intervals_from_moments(moments, interval_start=-3, interval_end=3):
         intervals.append(interval)
 
     return intervals
+
+class EventIntervals:
+
+    def __init__(self, intervals_list, label, color):
+        self.intervals_list = intervals_list
+        self.label = label
+        self.color = color
+
+    @staticmethod
+    def get_mask_interval(time_column, interval):
+        interval_start, interval_end = interval
+        mask = (interval_start <= time_column) & (time_column <= interval_end)
+        return mask
+
+    def get_mask_intervals(self, time_column):
+        # One mask for each interval
+        masks_list = []
+
+        for interval in self.intervals_list:
+            mask_interval = self.get_mask_interval(time_column, interval)
+            masks_list.append(mask_interval)
+
+        return masks_list
+
+def parse_string_iso_format(s):
+    d = dateutil.parser.parse(s)
+    return d
+
+
+# def _get_mask_intervals(self, intervals_list):
+#     # One mask for all intervals
+#     mask = None
+#
+#     for interval in intervals_list:
+#         mask_interval = self._get_mask_interval(interval)
+#
+#         if mask is None:
+#             mask = mask_interval
+#         else:
+#             mask = mask | mask_interval
+#
+#     return mask
+
+
+

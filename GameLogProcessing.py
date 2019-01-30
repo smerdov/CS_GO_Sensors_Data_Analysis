@@ -6,7 +6,7 @@ import os
 import json
 import joblib
 from utils import normalize_MPU9250_data, split_df, string2json
-from ChairAnalyzer import ChairAnalyser
+# from ChairAnalyser import ChairAnalyser
 
 plt.interactive(True)
 pd.options.display.max_columns = 15
@@ -158,36 +158,36 @@ joblib.dump(gamedata_dict, 'data/gamedata_dict')
 
 
 
-times = pd.to_datetime(df_gamelog.loc[mask_killed, 'time'])
-np.diff(times.values) / 10 ** 9
-
-
-(times.iloc[1:] - times.iloc[:-1].values).iloc[10]
-
-
-
-(df_gamelog['health_is_0']).sum()
-
-
-plt.plot(df_gamelog['health_is_0'])
-
-
-# TODO: check player behaviour right after death
-
-
-df_gamelog['event'].value_counts()
-
-
-mask_fire = df_gamelog['event'] == 'weapon_fire'
-
-df_gamelog.loc[mask_fire, 'parameters']
-fire_times = pd.to_datetime(df_gamelog.loc[mask_fire, 'time'])
-(fire_times.values[1:] - fire_times.values[:-1]).min()
-
-df_fire = pd.DataFrame(list(df_gamelog.loc[mask_fire, 'parameters'].values))
-
-df_fire.info()
-
+# times = pd.to_datetime(df_gamelog.loc[mask_killed, 'time'])
+# np.diff(times.values) / 10 ** 9
+#
+#
+# (times.iloc[1:] - times.iloc[:-1].values).iloc[10]
+#
+#
+#
+# (df_gamelog['health_is_0']).sum()
+#
+#
+# plt.plot(df_gamelog['health_is_0'])
+#
+#
+# # TODO: check player behaviour right after death
+#
+#
+# df_gamelog['event'].value_counts()
+#
+#
+# mask_fire = df_gamelog['event'] == 'weapon_fire'
+#
+# df_gamelog.loc[mask_fire, 'parameters']
+# fire_times = pd.to_datetime(df_gamelog.loc[mask_fire, 'time'])
+# (fire_times.values[1:] - fire_times.values[:-1]).min()
+#
+# df_fire = pd.DataFrame(list(df_gamelog.loc[mask_fire, 'parameters'].values))
+#
+# df_fire.info()
+#
 
 
 

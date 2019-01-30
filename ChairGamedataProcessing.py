@@ -5,7 +5,7 @@ import seaborn as sns
 import os
 import joblib
 from utils import normalize_MPU9250_data, split_df
-from ChairAnalyzer import ChairAnalyser
+from ChairAnalyzerOld import ChairAnalyser
 from datetime import datetime
 
 plt.interactive(True)

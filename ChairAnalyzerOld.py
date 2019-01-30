@@ -9,6 +9,7 @@ from scipy.interpolate import splev, splrep
 import json
 from datetime import datetime
 import dateutil.parser
+from utils import get_mask_intervals
 
 # pic_prefix = '../../pic/'
 
@@ -17,7 +18,7 @@ class ChairAnalyser:
     def __init__(self,
                  df_chair,
                  pic_prefix,
-                 mask_dicts_list=None,
+                 # mask_dicts_list=None,
                  measurement_interval=0.01,
                  measurements_per_batch=1000,
                  name=None,
@@ -30,35 +31,6 @@ class ChairAnalyser:
 
         self.means, self.stds, medians = self.create_mean_stds()
 
-    def _get_mask_interval(self, intervals_list):
-        interval_start, interval_end = intervals_list
-        mask = (interval_start <= self.df_chair['time']) & (self.df_chair['time'] <= interval_end)
-        return mask
-
-    # def _get_mask_intervals(self, intervals_list):
-    #     # One mask for all intervals
-    #     mask = None
-    #
-    #     for interval in intervals_list:
-    #         mask_interval = self._get_mask_interval(interval)
-    #
-    #         if mask is None:
-    #             mask = mask_interval
-    #         else:
-    #             mask = mask | mask_interval
-    #
-    #     return mask
-
-    def _get_mask_intervals(self, intervals_list):
-        # One mask for each interval
-        masks_list = []
-
-        for interval in intervals_list:
-            mask_interval = self._get_mask_interval(interval)
-            masks_list.append(mask_interval)
-
-        return masks_list
-
     def plot_measurements_timeline(
             self,
             sensors=('acc', 'gyro', 'mag'),
@@ -66,6 +38,8 @@ class ChairAnalyser:
             intervals_dicts_list=None,  # TODO: implement
             plot_suptitle=False,
             fontsize=18,
+            alpha=0.75,
+            alpha_background=0.5,
     ):
         df = self.df_chair
         name = self.name
@@ -85,14 +59,14 @@ class ChairAnalyser:
             column_name = sensors[n_col] + '_' + axes[n_row]
             data2plot = df.loc[:, column_name]
 
-            print(f"len(times)={len(times)}")
-            ax_instance.plot(times, data2plot.values, label='nothing', color='black')
+            # print(f"len(times)={len(times)}")
+            ax_instance.plot(times, data2plot.values, label='nothing', color='black', alpha=alpha_background)
             # plt.xticks(fontsize=fontsize - 2)
             # plt.yticks(fontsize=fontsize - 2)
 
             # intervals_dict = intervals_dicts_list[0]
             for intervals_dict in intervals_dicts_list:
-                mask_interval_list = self._get_mask_intervals(intervals_list=intervals_dict['intervals_list'])
+                mask_interval_list = get_mask_intervals(df['time'], intervals_list=intervals_dict['intervals_list'])
                 label = intervals_dict['label']
                 color = intervals_dict['color']
 
@@ -104,7 +78,7 @@ class ChairAnalyser:
                         data2plot_with_mask.values,
                         # label=label,
                         color=color,
-                        alpha=0.5,
+                        alpha=alpha,
                     )
 
                 ax_instance.plot([], [], label=label, color=color)
