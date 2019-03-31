@@ -5,7 +5,7 @@ import seaborn as sns
 import os
 import joblib
 from utils import normalize_MPU9250_data, split_df
-from ChairAnalyzerOld import ChairAnalyser
+# from ChairAnalyzerOld import ChairAnalyser
 from datetime import datetime
 
 plt.interactive(True)
@@ -59,7 +59,7 @@ for session_id in common_keys:
             reaction_stats = pd.DataFrame(std_list).median()  # It should be compared with mean std on the chair
             event_reactions_dict[name] = reaction_stats
 
-    df_event_reactions = pd.DataFrame(event_reactions_dict )  #.round(4).values
+    df_event_reactions = pd.DataFrame(event_reactions_dict)  #.round(4).values
 
     features_dict = {}
 
@@ -67,6 +67,16 @@ for session_id in common_keys:
         for column in df_event_reactions.columns:
             feature_name = f"{sensor_name}__{column}"
             features_dict[feature_name] = df_event_reactions.loc[sensor_name, column]
+
+    ### KDA-like objectives
+    n_deaths = len(times_is_killed)
+    n_kills = len(times_kills)
+
+    n_deaths = max(n_deaths, 0.001)  # bound
+
+    kill_death_ratio = min(n_kills / n_deaths, 10)
+    features_dict['Kill Death Ratio'] = kill_death_ratio
+    # features_dict['kill_death_ratio'] = kill_death_ratio
 
     game_events_features_dict[session_id] = features_dict
 

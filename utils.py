@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import dateutil.parser
+import numpy as np
 
 coefs_dict = {
     'gyro_coef': 250.0/32768.0,
@@ -151,9 +152,37 @@ class EventIntervals:
 
         return masks_list
 
+    def get_mask_intervals_union(self, time_column):
+        ### One mask for all intervals
+        mask_union = np.zeros(shape=time_column.shape, dtype=bool)
+
+        masks_list = self.get_mask_intervals(time_column)
+        for mask in masks_list:
+            mask_union = mask_union | mask.values
+
+        return mask_union
+
+
+
 def parse_string_iso_format(s):
     d = dateutil.parser.parse(s)
     return d
+
+
+def get_aspect_from_n_plots(n_plots):
+    row = col = int(n_plots ** 0.5)
+    if row * col >= n_plots:
+        return row, col
+    else:
+        row += 1
+        if row * col >= n_plots:
+            return row, col
+        else:
+            col += 1
+            if row * col >= n_plots:
+                return row, col
+            else:
+                raise ValueError(f'Can\'t find aspect ratio for {n_plots}')
 
 
 # def _get_mask_intervals(self, intervals_list):

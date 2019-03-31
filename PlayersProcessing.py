@@ -25,7 +25,7 @@ rename_dict = dict(zip(emotion_columns_before_raw + emotion_columns_after_raw, e
 
 rename_dict.update({
     ' What experience do u have in shooter games (Counter-Strike, Doom, Battlefield, etc.)?': 'Skill',
-    'How much hours did you spent playing Counter-Strike (all versions)?': 'Hours',
+    'How much hours did you spent playing Counter-Strike (all versions)?': 'Hours exp',
     'Id': 'player_id',
 })
 
@@ -47,11 +47,12 @@ columns2drop = ['Timestamp',
 df_players.drop(columns2drop, axis=1, inplace=True)
 
 # df_players['Hours'].sort_values()
-hours_border_list = [100, 500, 3000]
+hours_border_list = [100, 1000]
 
 for hours_border in hours_border_list:
-    feature_name = f'More than {hours_border} hours experience'
-    df_players[feature_name] = (df_players['Hours'] > hours_border) * 1
+    # feature_name = f'More than {hours_border} hours experience'
+    feature_name = f'>{hours_border} h exp'
+    df_players[feature_name] = (df_players['Hours exp'] >= hours_border) * 1
 
 # player_features = ['player_id', 'Skill', 'Hours', 'Gender', 'Age'] + emotion_columns_after
 # df_players = df_players[player_features]
@@ -60,7 +61,7 @@ skill_is_none = df_players['Skill'] == 'None'
 df_players.loc[skill_is_none, 'Skill'] = 'Small'
 df_players['player_id'] = df_players['player_id'].astype(str)
 
-df_players['Gender'] = pd.factorize(df_players['Gender'])[0]
+df_players['Gender'] = pd.factorize(df_players['Gender'])[0]  # 0 --- male, 1 --- female
 df_players['Skill'] = pd.factorize(df_players['Skill'])[0]
 
 df_players.to_csv('data/players.csv', index=False)
