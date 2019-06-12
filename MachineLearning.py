@@ -15,6 +15,8 @@ from sklearn.ensemble import RandomForestClassifier
 import argparse
 from sklearn.metrics import roc_auc_score, accuracy_score, log_loss
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.gaussian_process import GaussianProcessClassifier
 
 # TODO: change the order of sensors on a plot
 suffix = '__3_10_1_1_5'
@@ -58,7 +60,10 @@ lr = LogisticRegression(solver='lbfgs')
 svm = SVC(probability=True, gamma='scale')
 rf = RandomForestClassifier(n_estimators=100, max_depth=2)
 knn = KNeighborsClassifier(n_neighbors=3)
-models_list = [lr, svm, rf, knn]
+naive_bayes = GaussianNB()
+gaussian_process_classifier = GaussianProcessClassifier()
+
+models_list = [lr, svm, rf, knn, naive_bayes, gaussian_process_classifier]
 
 n_emulations = 1000
 results_list = []
@@ -106,7 +111,9 @@ for n_emulation in range(n_emulations):
 
         results_list.append(results)
 
-# TODO: add emulations
+    if n_emulation % 100 == 0:
+        print(f'{n_emulation}/{n_emulations} emulations done')
+
 
 df_dict = {}
 
