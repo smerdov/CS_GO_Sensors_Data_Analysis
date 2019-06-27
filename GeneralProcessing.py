@@ -36,6 +36,9 @@ for session_id, session_data_dict in sessions_dict.items():
     if not set(sensors_list).issubset(set(session_data_dict.keys())):
         continue
 
+    if session_id not in gamedata_dict:
+        continue
+
     moments_kills = gamedata_dict[session_id]['times_kills']
     moments_death = gamedata_dict[session_id]['times_is_killed']
     duration = 1
