@@ -6,7 +6,8 @@ import joblib
 from utils import normalize_MPU9250_data, split_df, get_intervals_from_moments, EventIntervals
 import ChairAnalyser
 from ChairAnalyser import ChairAnalyser
-from GeneralAnalyser import plot_measurements, plot_measurements_pairwise, plot_measurements_iop
+from GeneralAnalyser import plot_measurements, plot_measurements_pairwise\
+# from GeneralAnalyser import plot_measurements_iop
 import itertools
 from sklearn.preprocessing import StandardScaler
 import argparse
@@ -15,8 +16,13 @@ import argparse
 pd.options.display.max_columns = 15
 pic_prefix = 'pic/'
 
+
 # data_path = 'data/CSV'
 # data_path = 'Anonimised Data/Data'
+
+import sys
+print(sys.argv)
+del sys.argv[1:]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--interval', default=1, type=float)
@@ -24,7 +30,7 @@ parser.add_argument('--shift', default=1, type=int)  # -1 --- before, 0 - at the
 parser.add_argument('--visualisation', default=False, type=int)
 parser.add_argument('--verbose', default=True, type=int)
 parser.add_argument('--std_mode', default=True, type=int)
-parser.add_argument('--iop', default=True, type=int)
+parser.add_argument('--iop', default=False, type=int)
 parser.add_argument('--reaction_multiplier', default=5, type=float)
 # parser.add_argument('--max_sessions_per_player', default=3, type=int)
 args = parser.parse_args()
@@ -36,8 +42,8 @@ std_mode = args.std_mode
 reaction_multiplier = args.reaction_multiplier
 iop = args.iop
 
-if iop:
-    plot_measurements = plot_measurements_iop
+# if iop:
+#     plot_measurements = plot_measurements_iop
 
 interval_start = interval * (shift / 2)
 interval_end = interval * (shift / 2 + 1)

@@ -35,8 +35,8 @@ if __name__ == '__main__':
     for player_id, player_data_dict in data_dict.items():
         # if ('gamelog' not in player_data_dict):  # Because we split data according to gamelog
         #     continue  # Then it has to be imagined
-        if ('schairlog' not in player_data_dict):  # Because we split data according to gamelog
-            continue  # Then it has to be imagined
+        # if ('schairlog' not in player_data_dict):
+        #     continue  # Then it has to be imagined
 
         if 'gamelog' in player_data_dict:
             df_gamelog = player_data_dict['gamelog']

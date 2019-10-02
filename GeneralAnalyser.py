@@ -281,92 +281,92 @@ def plot_measurements(
     plt.close()
 
 
-def plot_measurements_iop(  ### WARNING: CUSTOM FUNCTION FOR IOP-2019
-        analyser_column_pairs_list,  # analysers for hrm, temperature, etc. for the same session_id
-        pic_prefix,
-        session_id,
-        event_intervals_list=None,
-        n_rows=None,
-        n_cols=None,
-        figsize=(21, 15),
-        plot_suptitle=False,
-        fontsize=18,
-        alpha=0.9,
-        alpha_background=0.5,
-        sharex='col',
-):
-    n_plots = len(analyser_column_pairs_list)
-
-    if n_rows is None:  # TODO: can be isolated to a function
-        if n_cols is None:
-            n_rows, n_cols = get_aspect_from_n_plots(n_plots)
-        else:
-            n_rows = int(np.ceil(n_plots / n_cols))
-    else:
-        if n_cols is None:
-            n_cols = int(np.ceil(n_plots / n_rows))
-
-    analysers_names = [analyser.sensor_name for analyser, column in analyser_column_pairs_list]
-    analysers_names = list(OrderedDict.fromkeys(analysers_names))  # To preserve uniqueness and order
-    pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.png'
-
-    fig, ax_list = plt.subplots(n_rows, n_cols, sharex=sharex, figsize=figsize, squeeze=False)
-    rows_cols_list = itertools.product(range(n_rows), range(n_cols))
-
-    for analyser_column_pair, row_col_pair in zip(analyser_column_pairs_list, rows_cols_list):
-        analyser, column = analyser_column_pair
-        n_row, n_col = row_col_pair
-        ax = ax_list[n_row, n_col]
-
-        times = analyser.df['time']
-        data2plot = analyser.df[column]
-        sensor_name = analyser.sensor_name
-
-        ax.plot(times, data2plot.values, label='nothing', color='black', alpha=alpha_background)
-        ax.tick_params(axis='both', labelsize=fontsize-12)
-        # ax.set_ylabel(column, fontsize=fontsize)
-        ax.set_ylabel(column.split('_')[1], fontsize=fontsize)
-
-        if n_row == n_rows - 1:
-            ax.set_xlabel('time (s)', fontsize=fontsize)
-        elif n_row == 0:
-            sensor_name = 'Accelerometer' if (n_col == 0) else 'Gyroscope'
-            ax.set_title(sensor_name, fontsize=fontsize+3)
-
-        for event_intervals in event_intervals_list:
-            # intervals_list = event_intervals.intervals_list
-            event_label = event_intervals.label
-            color = event_intervals.color
-            # mask_interval_list = get_mask_intervals(times, intervals_list=intervals_list)
-            mask_interval_list = event_intervals.get_mask_intervals(times)
-
-            for mask_interval in mask_interval_list:
-                times_with_mask = times.loc[mask_interval]
-                data2plot_with_mask = data2plot.loc[mask_interval]
-                ax.plot(
-                    times_with_mask,
-                    data2plot_with_mask.values,
-                    # label=event_label,
-                    color=color,
-                    alpha=alpha,
-                )
-
-            ax.plot([], [], label=event_label, color=color)
-        ax.legend(loc='upper right', fontsize=fontsize-8)  # maybe the constant could be generalized
-
-    if plot_suptitle:  # TODO: deal with suptitle
-        # suptitle = f'{sensor_name.capitalize()} sensors data, session_id = {session_id}'  # TODO: adapt for multiple case
-        suptitle = f'Session id {session_id}'  # TODO: adapt for multiple case
-        fig.suptitle(suptitle, fontsize=fontsize + 3)
-
-    fig.tight_layout(rect=[0, 0.00, 1, 0.9625])
-
-    # fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-    # fig.subplots_adjust(top=0.5)
-    # fig.tight_layout()
-    # plt.savefig(pic_prefix + f'measurements_{self.sensor_name}_{self.session_id}.png')
-    plt.savefig(pic_path)
-    plt.close()
+# def plot_measurements_iop(  ### WARNING: CUSTOM FUNCTION FOR IOP-2019
+#         analyser_column_pairs_list,  # analysers for hrm, temperature, etc. for the same session_id
+#         pic_prefix,
+#         session_id,
+#         event_intervals_list=None,
+#         n_rows=None,
+#         n_cols=None,
+#         figsize=(21, 15),
+#         plot_suptitle=False,
+#         fontsize=18,
+#         alpha=0.9,
+#         alpha_background=0.5,
+#         sharex='col',
+# ):
+#     n_plots = len(analyser_column_pairs_list)
+#
+#     if n_rows is None:  # TODO: can be isolated to a function
+#         if n_cols is None:
+#             n_rows, n_cols = get_aspect_from_n_plots(n_plots)
+#         else:
+#             n_rows = int(np.ceil(n_plots / n_cols))
+#     else:
+#         if n_cols is None:
+#             n_cols = int(np.ceil(n_plots / n_rows))
+#
+#     analysers_names = [analyser.sensor_name for analyser, column in analyser_column_pairs_list]
+#     analysers_names = list(OrderedDict.fromkeys(analysers_names))  # To preserve uniqueness and order
+#     pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.png'
+#
+#     fig, ax_list = plt.subplots(n_rows, n_cols, sharex=sharex, figsize=figsize, squeeze=False)
+#     rows_cols_list = itertools.product(range(n_rows), range(n_cols))
+#
+#     for analyser_column_pair, row_col_pair in zip(analyser_column_pairs_list, rows_cols_list):
+#         analyser, column = analyser_column_pair
+#         n_row, n_col = row_col_pair
+#         ax = ax_list[n_row, n_col]
+#
+#         times = analyser.df['time']
+#         data2plot = analyser.df[column]
+#         sensor_name = analyser.sensor_name
+#
+#         ax.plot(times, data2plot.values, label='nothing', color='black', alpha=alpha_background)
+#         ax.tick_params(axis='both', labelsize=fontsize-12)
+#         # ax.set_ylabel(column, fontsize=fontsize)
+#         ax.set_ylabel(column.split('_')[1], fontsize=fontsize)
+#
+#         if n_row == n_rows - 1:
+#             ax.set_xlabel('time (s)', fontsize=fontsize)
+#         elif n_row == 0:
+#             sensor_name = 'Accelerometer' if (n_col == 0) else 'Gyroscope'
+#             ax.set_title(sensor_name, fontsize=fontsize+3)
+#
+#         for event_intervals in event_intervals_list:
+#             # intervals_list = event_intervals.intervals_list
+#             event_label = event_intervals.label
+#             color = event_intervals.color
+#             # mask_interval_list = get_mask_intervals(times, intervals_list=intervals_list)
+#             mask_interval_list = event_intervals.get_mask_intervals(times)
+#
+#             for mask_interval in mask_interval_list:
+#                 times_with_mask = times.loc[mask_interval]
+#                 data2plot_with_mask = data2plot.loc[mask_interval]
+#                 ax.plot(
+#                     times_with_mask,
+#                     data2plot_with_mask.values,
+#                     # label=event_label,
+#                     color=color,
+#                     alpha=alpha,
+#                 )
+#
+#             ax.plot([], [], label=event_label, color=color)
+#         ax.legend(loc='upper right', fontsize=fontsize-8)  # maybe the constant could be generalized
+#
+#     if plot_suptitle:  # TODO: deal with suptitle
+#         # suptitle = f'{sensor_name.capitalize()} sensors data, session_id = {session_id}'  # TODO: adapt for multiple case
+#         suptitle = f'Session id {session_id}'  # TODO: adapt for multiple case
+#         fig.suptitle(suptitle, fontsize=fontsize + 3)
+#
+#     fig.tight_layout(rect=[0, 0.00, 1, 0.9625])
+#
+#     # fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+#     # fig.subplots_adjust(top=0.5)
+#     # fig.tight_layout()
+#     # plt.savefig(pic_prefix + f'measurements_{self.sensor_name}_{self.session_id}.png')
+#     plt.savefig(pic_path)
+#     plt.close()
 
 
 
