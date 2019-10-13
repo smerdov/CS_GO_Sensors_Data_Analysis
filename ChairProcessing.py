@@ -16,10 +16,6 @@ import argparse
 pd.options.display.max_columns = 15
 pic_prefix = 'pic/'
 
-
-# data_path = 'data/CSV'
-# data_path = 'Anonimised Data/Data'
-
 import sys
 print(sys.argv)
 del sys.argv[1:]

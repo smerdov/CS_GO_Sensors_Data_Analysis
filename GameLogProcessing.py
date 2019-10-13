@@ -15,7 +15,7 @@ data_path = 'Anonimised Data/Data'
 processed_data_path = 'data/players_data_processed'
 
 # data_dict = joblib.load('data/data_dict')
-sessions_dict = joblib.load('data/sessions_dict')
+
 
 def check_player_is_killed(parameters_dict):
     # First condition: event is that somebody dies
@@ -64,45 +64,48 @@ def get_shootout_times_start_end(
 
     return shootout_times_start_end
 
-gamedata_dict = {}
 
-for session_id, session_data_dict in sessions_dict.items():
-    if 'gamelog' not in session_data_dict:
-        continue
+if __name__ == '__main__':
+    sessions_dict = joblib.load('data/sessions_dict')
+    gamedata_dict = {}
 
-    mask_player_events = session_data_dict['gamelog']['parameters'].apply(lambda x: x.find('koltech')) != -1
-    df_gamelog = session_data_dict['gamelog'].loc[mask_player_events, :]
-    df_gamelog['parameters'] = df_gamelog['parameters'].apply(string2json)
-    df_gamelog['health'] = df_gamelog['parameters'].apply(lambda x: int(x['health']) if 'health' in x else None)
-    mask_somebody_is_killed = df_gamelog['health'] == 0
+    for session_id, session_data_dict in sessions_dict.items():
+        if 'gamelog' not in session_data_dict:
+            continue
 
-    mask_player_is_killed = mask_somebody_is_killed & df_gamelog.loc[:, 'parameters'].apply(check_player_is_killed)
-    mask_player_kills = mask_somebody_is_killed & ~mask_player_is_killed
+        mask_player_events = session_data_dict['gamelog']['parameters'].apply(lambda x: x.find('koltech')) != -1
+        df_gamelog = session_data_dict['gamelog'].loc[mask_player_events, :]
+        df_gamelog['parameters'] = df_gamelog['parameters'].apply(string2json)
+        df_gamelog['health'] = df_gamelog['parameters'].apply(lambda x: int(x['health']) if 'health' in x else None)
+        mask_somebody_is_killed = df_gamelog['health'] == 0
 
-    times_is_killed = df_gamelog.loc[mask_player_is_killed, ['time']]
-    # times_is_killed = list(pd.to_datetime(times_is_killed['time']).apply(lambda x: x.timestamp()).values)
-    times_is_killed = list(times_is_killed['time'].values)
-    times_kills = df_gamelog.loc[mask_player_kills, ['time']]
-    # times_kills = list(pd.to_datetime(times_kills['time']).apply(lambda x: x.timestamp()).values)
-    times_kills = list(times_kills['time'].values)
+        mask_player_is_killed = mask_somebody_is_killed & df_gamelog.loc[:, 'parameters'].apply(check_player_is_killed)
+        mask_player_kills = mask_somebody_is_killed & ~mask_player_is_killed
 
-    shootout_times_start_end = get_shootout_times_start_end(df_gamelog)
+        times_is_killed = df_gamelog.loc[mask_player_is_killed, ['time']]
+        # times_is_killed = list(pd.to_datetime(times_is_killed['time']).apply(lambda x: x.timestamp()).values)
+        times_is_killed = list(times_is_killed['time'].values)
+        times_kills = df_gamelog.loc[mask_player_kills, ['time']]
+        # times_kills = list(pd.to_datetime(times_kills['time']).apply(lambda x: x.timestamp()).values)
+        times_kills = list(times_kills['time'].values)
 
-    player_gamedata_dict = {
-        'times_is_killed': times_is_killed,
-        'times_kills': times_kills,
-        'shootout_times_start_end': shootout_times_start_end,
-    }
+        shootout_times_start_end = get_shootout_times_start_end(df_gamelog)
 
-    gamedata_dict[session_id] = player_gamedata_dict
+        player_gamedata_dict = {
+            'times_is_killed': times_is_killed,
+            'times_kills': times_kills,
+            'shootout_times_start_end': shootout_times_start_end,
+        }
 
-
-# gamedata_dict['9'].keys()
-# gamedata_dict['9']['times_is_killed']
-# gamedata_dict['9']['times_kills']
+        gamedata_dict[session_id] = player_gamedata_dict
 
 
-joblib.dump(gamedata_dict, 'data/gamedata_dict')
+    # gamedata_dict['9'].keys()
+    # gamedata_dict['9']['times_is_killed']
+    # gamedata_dict['9']['times_kills']
+
+
+    joblib.dump(gamedata_dict, 'data/gamedata_dict')
 
 
 

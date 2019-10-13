@@ -4,15 +4,11 @@ import matplotlib.pyplot as plt
 import os
 import joblib
 from utils import normalize_MPU9250_data, split_df, get_intervals_from_moments, EventIntervals
-from GeneralAnalyser import GeneralAnalyser, plot_measurements
 
 # plt.interactive(True)
 pd.options.display.max_columns = 15
 pic_prefix = 'pic/'
-# data_path = 'data/CSV'
-# data_path = 'Anonimised Data/Data'
 
-# sessions_dict = joblib.load('data/sessions_dict')
 sessions_dict = joblib.load('data/sessions_dict')
 gamedata_dict = joblib.load('data/gamedata_dict')
 
@@ -34,7 +30,9 @@ for session_id, session_data_dict in sessions_dict.items():
     df_dict = {}
 
     if not set(sensors_list).issubset(set(session_data_dict.keys())):
-        continue
+        ### If not all the sensors provided
+        # continue  # TODO: THIS IS DANGEROUS AND SHOULD BE UNCOMMENTED BACK
+        pass
 
     if session_id not in gamedata_dict:
         continue
@@ -53,6 +51,37 @@ for session_id, session_data_dict in sessions_dict.items():
 
     events_intervals_list = [event_intervals_shootout, event_intervals_kills, event_intervals_death]
 
+
+    for sensor_name in sensors_columns_dict:
+        df = session_data_dict[sensor_name].copy()
+
+        # if sensor_name == 'schairlog':
+        #     chair_features = get_chair_features(df, session_id)  # TMP
+        #     chair_features_list.append(chair_features)
+
+        # ss = StandardScaler()
+        # # df.values = ss.fit_transform(df.values)
+        # df.loc[:, sensors_columns_dict[sensor_name]] = ss.fit_transform(df.loc[:, sensors_columns_dict[sensor_name]])
+
+        ###  WARNING: it is CUSTOM PART
+        if sensor_name == 'schairlog':
+            chair_analyser = GeneralAnalyser(
+                df,
+                pic_prefix=pic_prefix,
+                sensor_name='Chair',  # Manual assignment
+                session_id=session_id,
+                events_intervals_list=events_intervals_list,
+                interval=interval,
+                reaction_multiplier=reaction_multiplier,
+            )
+            # chair_analyser.get_floating_features()  # Need to be refactored
+            chair_analyser._append_floating_features(interval=interval)
+
+            for column in sensors_columns_dict[sensor_name]:
+                analyser_column_pairs_list.append([chair_analyser, column])
+
+
+    ### VISUALIZATION
     analyser_column_pairs_list = []
 
     for sensor_name in sensors_columns_dict:

@@ -35,6 +35,16 @@ class GeneralAnalyser:
         self.session_id = session_id
         self.name = name  # Need to be elaborated
 
+    def get_dummy_features(self):
+        column_means = self.df.mean(axis=0).to_dict()
+
+        column_means = pd.Series(column_means, name=self.session_id)
+
+        return column_means
+
+    # def resample(self):
+
+
     # def plot_measurements_timeline(
     #         self,
     #         column_name,
@@ -102,6 +112,26 @@ class GeneralAnalyser:
     #     fig.tight_layout(rect=[0, 0.00, 1, 0.97])
     #     plt.savefig(self.pic_prefix + f'measurements_{self.sensor_name}_{self.session_id}.png')
     #     plt.close()
+
+
+# class EnviboxAnalyser(GeneralAnalyser):
+#
+#     def __init__(self,
+#                  df,
+#                  pic_prefix,
+#                  sensor_name,
+#                  session_id,
+#                  events_intervals_list=None,
+#                  interval=2,
+#                  # measurement_interval=0.01,
+#                  # measurements_per_batch=1000,
+#                  name=None,
+#                  reaction_multiplier=5,
+#                  ):
+#         super().__init__(df, pic_prefix, sensor_name, session_id, name)
+
+
+
 
 
 def plot_measurements_pairwise(

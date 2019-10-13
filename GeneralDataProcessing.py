@@ -16,7 +16,18 @@ player_folders = [f"{data_path}/{folder}" for folder in player_folders if not fo
 
 data_dict = {}
 
-data_sources_list = ['schairlog', 'gamelog', 'hrm', 'envibox', 'datalog']  # List sources for analysis here
+data_sources_list = [
+    'schairlog',
+    'gamelog',
+    'hrm',
+    'envibox',
+    'datalog',
+    'eyetracker',
+    # 'key',
+    # 'mkey',
+    'mxy',
+    # 'gyro',  # Bad quality data
+]  # List sources for analysis here
 
 # chair_data_columns = ['time', 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'mag_x', 'mag_y', 'mag_z']
 
@@ -56,7 +67,7 @@ for player_folder in player_folders:
         if data_source == 'datalog':
             player_data_dict[data_source].drop(columns=['time_host', 'n'], inplace=True)
             rename_dict = {
-                'sensor1': 'hrm2',
+                'sensor1': 'hrm2',  # Too complex
                 'sensor2': 'resistance',
                 'sensor3': 'muscle_activity',
             }
@@ -67,10 +78,19 @@ for player_folder in player_folders:
 
         player_data_dict[data_source].sort_values(by='time', inplace=True)
         player_data_dict[data_source].reset_index(drop=True, inplace=True)
+        if data_source == 'eyetracker':
+            player_data_dict[data_source] = player_data_dict[data_source].iloc[1:, :]  # I just wanna drop the first row because
+            # the data writing was interrupted
         player_data_dict[data_source]['time'] = pd.to_datetime(player_data_dict[data_source]['time']).apply(lambda x: x.timestamp())
 
     data_dict[player_id] = player_data_dict
 
 joblib.dump(data_dict, 'data/data_dict')
+
+
+
+
+# plt.close()
+# plt.plot(player_data_dict['datalog']['sensor3'].iloc[:10000])
 
 
