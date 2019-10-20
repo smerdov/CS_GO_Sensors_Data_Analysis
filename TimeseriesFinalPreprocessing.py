@@ -4,14 +4,23 @@ import matplotlib.pyplot as plt
 import os
 import joblib
 from utils import string2json
-from config import TIMESTEP
+# from config import TIMESTEP
 import itertools
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
+import argparse
 
 plt.interactive(True)
 pd.options.display.max_columns = 15
 pic_folder = 'pic/'
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--TIMESTEP', default=10, type=float)
+parser.add_argument('--plot', default=0, type=int)
+args = parser.parse_args()
+TIMESTEP = args.TIMESTEP
+plot = args.plot
+
 
 data_dict_resampled_merged_with_target = joblib.load('data/data_dict_resampled_merged_with_target')
 
@@ -20,7 +29,10 @@ data_dict_resampled_merged_with_target = joblib.load('data/data_dict_resampled_m
 df_all = pd.concat(list(data_dict_resampled_merged_with_target.values()), axis=0)
 target_prefix = 'kills_proportion'
 target_columns = [column for column in df_all.columns if column.startswith(target_prefix)]
-columns_order = sorted(df_all.drop(columns=target_columns).columns)
+# columns_order = sorted(df_all.drop(columns=target_columns).columns)
+columns_order = ['gaze_movement', 'mouse_movement', 'mouse_scroll', 'muscle_activity',
+                 'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'hrm', 'resistance',
+                 'temperature', 'co2', 'humidity']  # This is custom listing!!!
 # columns_order = ['als', 'co2', 'hrm', 'hrm2', 'humidity', 'mic',
 #                  'muscle_activity', 'resistance', 'temperature']
 # columns_order.remove(target_column)
@@ -54,7 +66,8 @@ for player_id, df in data_dict_resampled_merged_with_target.items():
     data_dict_resampled_merged_with_target_scaled[player_id] = df_scaled
 
 
-joblib.dump(data_dict_resampled_merged_with_target_scaled, 'data/data_dict_resampled_merged_with_target_scaled')
+# joblib.dump(data_dict_resampled_merged_with_target_scaled, 'data/data_dict_resampled_merged_with_target_scaled')
+joblib.dump(data_dict_resampled_merged_with_target_scaled, f'data/data_dict_resampled_merged_with_target_scaled_{int(TIMESTEP)}')
 
 
 # splitter = KFold(n_splits=5, shuffle=True)

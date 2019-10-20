@@ -3,7 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 import joblib
-from config import TIMESTEP_STRING
+# from config import TIMESTEP_STRING
+import argparse
+import sys
 
 plt.interactive(True)
 pd.options.display.max_columns = 15
@@ -15,14 +17,22 @@ data_dict = joblib.load('data/data_dict')
 # data_sources_list = ['gamelog', 'hrm', 'envibox', 'datalog'] # , 'eyetracker', 'key', 'mkey', 'mxy', 'gyro']  # List sources for analysis here
 data_dict_resampled = {}
 
-movements_columns = ['gaze_movement', 'mouse_movement']  # Using mean for the resampling is not correct
+movements_columns = ['gaze_movement', 'mouse_movement', 'mouse_scroll']  # Using mean for the resampling is not correct
 # because the result depends on the number of samples
+
+# print(sys.argv)
+# del sys.argv[1:]
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--TIMESTEP_STRING', default='10s', type=str)
+args = parser.parse_args()
+TIMESTEP_STRING = args.TIMESTEP_STRING
 
 for player_id, player_data_dict in data_dict.items():
     if 'gamelog' not in player_data_dict:
         continue
 
-    # player_id = '10'  ### DEBUG
+    # player_id = '9'  ### DEBUG
     # player_data_dict = data_dict[player_id]  ### DEBUG
 
     player_data_dict_resampled = {}
@@ -34,13 +44,12 @@ for player_id, player_data_dict in data_dict.items():
             # player_data_dict_resampled['gamelog'] = player_data_dict['gamelog']
             continue
 
-        # data_source = 'datalog'  ### DEBUG
+        # data_source = 'envibox'  ### DEBUG
 
         if 'time' not in player_data_dict[data_source].columns:
             print('Cant see time in ', data_source)
         # else:
         #     print('See time in ', data_source)
-
 
         df = player_data_dict[data_source]
         # df = df.copy()  # DEBUG
@@ -50,8 +59,7 @@ for player_id, player_data_dict in data_dict.items():
 
         if data_source == 'envibox':
             # 'als' column should be dropped here
-            df.drop(columns=['mic'], inplace=True)
-
+            df.drop(columns=['mic', 'als'], inplace=True)
 
         if data_source == 'eyetracker':
             # df['gaze_x'] /= SCREEN_SIZE_X
@@ -77,6 +85,7 @@ for player_id, player_data_dict in data_dict.items():
             # df['mouse_dy'].min()
             # df['mouse_dx'].max()
             df['mouse_movement'] = (df['mouse_dx'] ** 2 + df['mouse_dy'] ** 2) ** 0.5
+            df['mouse_scroll'] = df['mouse_scroll'].abs()
             df.drop(columns=['mouse_dx', 'mouse_dy'], inplace=True)
 
         if data_source == 'datalog':

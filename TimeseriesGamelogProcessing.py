@@ -95,9 +95,10 @@ for player_id, data_dict4player in data_dict.items():
         'time_game_end': time_game_end,
     }
 
-
     gamedata_dict[player_id] = player_gamedata_dict
 
+gamedata_dict_update = joblib.load('data/gamedata_update_0')
+gamedata_dict.update(gamedata_dict_update)
 
 
 joblib.dump(gamedata_dict, 'data/gamedata_dict')

@@ -12,9 +12,6 @@ from sklearn.metrics import mean_squared_error, roc_auc_score, accuracy_score
 
 
 
-
-
-
 plt.interactive(True)
 pd.options.display.max_columns = 15
 pic_folder = 'pic/'

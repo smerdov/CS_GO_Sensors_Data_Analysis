@@ -4,7 +4,9 @@ import matplotlib.pyplot as plt
 import os
 import joblib
 from utils import string2json
-from config import TIMESTEP
+# from config import TIMESTEP
+import argparse
+import sys
 
 plt.interactive(True)
 pd.options.display.max_columns = 15
@@ -12,6 +14,12 @@ pic_prefix = 'pic/'
 
 data_dict_resampled = joblib.load('data/data_dict_resampled')
 gamedata_dict = joblib.load('data/gamedata_dict')
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--TIMESTEP', default=10, type=float)
+args = parser.parse_args()
+TIMESTEP = args.TIMESTEP
+
 
 data_dict_resampled_merged = {}
 
@@ -42,7 +50,10 @@ for player_id in gamedata_dict:
 
     times_kills = timestamp2step(gamedata_dict4player['times_kills'], df_start_time)
     times_deaths = timestamp2step(gamedata_dict4player['times_is_killed'], df_start_time)
-    times_shootouts = timestamp2step(gamedata_dict4player['shootout_times_start_end'], df_start_time)
+    if 'shootout_times_start_end' in gamedata_dict4player:
+        times_shootouts = timestamp2step(gamedata_dict4player['shootout_times_start_end'], df_start_time)
+    else:
+        times_shootouts = []
 
     # times_kills = np.round((np.array(gamedata_dict4player['times_kills']) - df_start_time) / TIMESTEP)
     # times_deaths = np.round((np.array(gamedata_dict4player['times_is_killed'])  - df_start_time) / TIMESTEP)
