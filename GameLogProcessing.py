@@ -105,7 +105,7 @@ if __name__ == '__main__':
     # gamedata_dict['9']['times_kills']
 
 
-    joblib.dump(gamedata_dict, 'data/gamedata_dict')
+    joblib.dump(gamedata_dict, 'data/gamedata_dict_old')
 
 
 

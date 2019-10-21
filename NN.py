@@ -23,23 +23,34 @@ pic_folder = 'pic/'
 
 class PredictorCell(nn.Module):
 
-    def __init__(self, input_size=9, hidden_size=16, attention=1):
+    def __init__(self, input_size=9, hidden_size=16, attention=1, alpha=0.01, eps=0.01):
         super().__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.attention = attention
+        self.mean = torch.zeros(size=(1, input_size))
+        self.std = torch.ones(size=(1, input_size))
+        self.alpha = alpha
+        self.eps = eps
 
         # self.gru = nn.GRUCell(input_size=self.input_size, hidden_size=self.hidden_size)
-        self.lstm = nn.LSTMCell(input_size=self.input_size, hidden_size=self.hidden_size)
-        # self.gru = nn.GRU(input_size=self.input_size, hidden_size=self.hidden_size)
+        # self.lstm = nn.LSTMCell(input_size=self.input_size, hidden_size=self.hidden_size)
+        # self.gru = nn.GRUCell(input_size=self.input_size, hidden_size=self.hidden_size)
+        self.gru = nn.RNNCell(input_size=self.input_size, hidden_size=self.hidden_size)
+
         self.reset_hidden()
         if self.attention:
             self.attention_0 = nn.Linear(self.input_size + self.hidden_size,
                                          self.input_size)  # self.input_size + self.hidden_size)
-            self.attention_1 = nn.Linear(self.input_size, self.input_size)
 
+            self.attention_1 = nn.Linear(self.input_size, self.input_size)
+            self.attention_2 = nn.Linear(self.input_size, self.input_size)
+
+        # self.layer_norm_0 = nn.LayerNorm(self.input_size)
         self.hidden2output_0 = nn.Linear(self.hidden_size, self.hidden_size)
-        self.hidden2output_1 = nn.Linear(self.hidden_size, 1)
+        self.hidden2output_1 = nn.Linear(self.hidden_size, self.hidden_size)
+        self.hidden2output_2 = nn.Linear(self.hidden_size, 1)
+
 
     def forward(self, input):
         # print([input, self.hidden])
@@ -48,16 +59,39 @@ class PredictorCell(nn.Module):
             # print(input_and_hidden.shape)
             attention_logits_0 = self.attention_0(input_and_hidden)
             attention_logits_0 = torch.relu(attention_logits_0)
-            attention_logits = self.attention_1(attention_logits_0)
+            attention_logits_1 = self.attention_1(attention_logits_0)
+            attention_logits_1 = torch.relu(attention_logits_1)
+            attention_logits_2 = self.attention_2(attention_logits_1)
+
+            attention_logits = attention_logits_2
 
             if self.attention == 1:
                 attention_weights = F.softmax(attention_logits, dim=1)
             elif self.attention == 2:
                 attention_weights = torch.sigmoid(attention_logits) # , dim=1)
                 # print(attention_weights)
+            elif self.attention == 3:
+                attention_weights = (attention_logits > 0)
+            elif self.attention == 4:
+                # attention_weights = attention_logits - (attention_logits - 1) * (attention_logits > 1)  # Cut everything > 1
+                # attention_weights = attention_weights * (attention_weights > 0)  # Cut everything < 0
+                attention_weights = attention_logits.clamp(0, 1)
+            elif self.attention == 5:
+                # attention_weights = attention_logits.clamp(0, 2)
+                attention_weights = attention_logits
+            elif self.attention == 6:
+                attention_weights = (attention_logits > 1)
+            elif self.attention == 7:
+                attention_logits_median = attention_logits.median()
+                attention_weights = (attention_logits > torch.max(attention_logits_median, torch.Tensor([0])))
+            elif self.attention == 8:
+                attention_logits_mean = attention_logits.mean()
+                attention_weights = (attention_logits > torch.max(attention_logits_mean, torch.Tensor([0])))
+            elif self.attention == 9:
+                attention_logits = attention_logits * (attention_logits > 0)
+                attention_weights = torch.tanh(attention_logits)
             else:
                 raise ValueError(f'self.attention = {self.attention} is not supported')
-
 
             input_with_attention = input * attention_weights  # Check this. And everything else.
         else:
@@ -65,19 +99,36 @@ class PredictorCell(nn.Module):
             attention_weights = 0
         # attention_weights = 0
 
-        # hidden = self.gru(input_with_attention, self.hidden)
         # input_with_attention = input
-        hidden, cell = self.lstm(input_with_attention, (self.hidden, self.cell))
+
+        input_with_attention_normalized = (input_with_attention - self.mean) / self.std
+
+        if self.training:
+            input_with_attention_detached = input_with_attention.detach()
+            self.mean = self.mean * (1 - self.alpha) + self.alpha * input_with_attention_detached
+            self.std = self.std * (1 - self.alpha) + self.alpha * (input_with_attention_detached - self.mean).abs()
+
+            self.std = self.std.clamp(self.eps, 10)
+
+            # [self.std < self.eps] = self.eps
+        # input_with_attention_normalized = input_with_attention
+
+        # input_with_attention_normalized = self.layer_norm_0(input_with_attention)
+        hidden = self.gru(input_with_attention_normalized, self.hidden)
+        # hidden, cell = self.lstm(input_with_attention, (self.hidden, self.cell))
 
         output = self.hidden2output_0(hidden)
         output = torch.relu(output)
         output = self.hidden2output_1(output)
+        output = torch.relu(output)
+        output = self.hidden2output_2(output)
         # output = self.hidden2output(hidden)
         self.hidden = hidden.detach()
-        self.cell = cell.detach()
+        # self.cell = cell.detach()
 
         output = torch.sigmoid(output)  # To [0, 1] interval
 
+        # return output, self.hidden, attention_weights  # , hidden
         return output, self.hidden, self.cell, attention_weights  # , hidden
 
     def reset_hidden(self):
@@ -111,6 +162,8 @@ class BatchGenerator:
 # player_ids = list(data_dict_resampled_merged_with_target_scaled.keys())
 player_ids = ['9', '0', '11', '7', '6', '1', '10', '19', '8', '21', '4', '3', '12', '2', '5', '14', '22'] + \
     ['13', '15', '16', '17']
+    # []
+    # ['15', '17']
 train_size = int(len(player_ids) * 0.55)
 val_size = int((len(player_ids) - train_size) * 0.5)
 test_size = len(player_ids) - train_size - val_size
@@ -126,14 +179,19 @@ criterion = nn.BCELoss()
 # batch_size_list = [8, 64, 256]
 # hidden_size_list = [16, 32, 64]
 # n_repeat_list = list(range(3))
-time_step_list = [5, 10, 20, 30, 40]  # 10 is already tested
+# time_step_list = [10, 20, 30, 40]  # 10 is already tested
+time_step_list = [30]  # 10 is already tested
+# window_size_list = [300]
 window_size_list = [300]
-batch_size_list = [64]
-# hidden_size_list = [8, 16, 32, 64]
-hidden_size_list = [32]
+batch_size_list = [16]
+hidden_size_list = [2, 4, 8]
+# hidden_size_list = [32]
 n_repeat_list = list(range(10))
-attention_list = [0, 1, 2]
-max_patience = 3
+# attention_list = [0, 1, 2]
+# attention_list = [0, 1, 2]
+# attention_list = [0, 1, 2, 3, 4, 5, 6, 7, 8]
+attention_list = [4, 0]
+max_patience = 5
 index_names = ['time_step', 'window_size', 'batch_size', 'hidden_size', 'attention', 'n_repeat']
 
 multi_index_all = pd.MultiIndex.from_product([time_step_list, window_size_list, batch_size_list,
@@ -146,12 +204,17 @@ df_results['score_test'] = -1
 df_results['best_epoch'] = -1
 # df_results.loc[(30, 600, 2, 8), 'scores'] = 1
 n_epoches = 50
-batches4epoch = 20
+batches4epoch = 5
 plot = False
 # super_suffix = 'v3'
-super_suffix = 'time_step_1'
+super_suffix = 'attention_12'
+# super_suffix = 'window_size_0'
 recreate_dataset = False
 # time_step_list = [5, 10, 40]
+
+from collections import defaultdict
+aucs4players = defaultdict(list)
+
 
 # time_step = time_step_list[0]
 for time_step in time_step_list:
@@ -177,9 +240,14 @@ for time_step in time_step_list:
 
     for window_size, batch_size, hidden_size, attention, n_repeat in \
             itertools.product(window_size_list, batch_size_list, hidden_size_list, attention_list, n_repeat_list):
+        # if (hidden_size == 8) and (attention < 7):
+        #     continue
+        # else:
+        #     batch_size = 8
+
     # for n_repeat in range(3, 5):
-        # window_size, batch_size, hidden_size, n_repeat = list(itertools.product(
-        #     window_size_list, batch_size_list, hidden_size_list, n_repeat_list))[0]
+    #     window_size, batch_size, hidden_size, n_repeat = list(itertools.product(
+    #         window_size_list, batch_size_list, hidden_size_list, n_repeat_list))[0]
         # if (time_step == 5) and (window_size == 120) and (batch_size < 128):
         #     continue
         suffix = f'{time_step}_{window_size}_{batch_size}_{hidden_size}_{attention}_{n_repeat}_{super_suffix}'
@@ -210,8 +278,18 @@ for time_step in time_step_list:
 
         train_tensors_dict = {}
 
-        for player_id, df4train in data_dict_resampled_merged_with_target_scaled.items():
+        # for player_id, df4train in data_dict_resampled_merged_with_target_scaled.items():
+        for player_id in player_ids:
+            df4train = data_dict_resampled_merged_with_target_scaled[player_id]
             train_tensors4player = {}
+
+            mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
+
+            if mask2keep.sum() == 0:
+                print(f'Not enogh data for player {player_id}')
+                continue
+
+            df4train = df4train.loc[mask2keep, :]
             df4train.fillna(0, inplace=True)
 
             target_future = df4train[target_column_future].values
@@ -273,7 +351,8 @@ for time_step in time_step_list:
         # hidden_state4epoch_list = []
         # outputs4epoch_list = []
 
-        batch_generator = BatchGenerator(train_tensors_dict, player_ids_train)
+        batch_generator = BatchGenerator(train_tensors_dict, list(train_tensors_dict.keys()))
+
 
         for n_epoch in range(n_epoches):
             if stop_learning:
@@ -295,27 +374,40 @@ for time_step in time_step_list:
             # np.random.shuffle(player_ids)  # It should be commented, but I'm not sure
 
             # for player_id in player_ids:
-            for n_batch in tqdm.tqdm(range(batches4epoch)):
+            # for n_batch in tqdm.tqdm(range(batches4epoch)):
+
+            for n_batch in range(batches4epoch):
                 predictor.reset_hidden()
                 batch = batch_generator.get_batch(batch_size)
                 batch_input, batch_target = batch
-
                 opt.zero_grad()  # Check the location
                 # for n_step in range(batch_size * 2):
                 for n_step in range(len(batch_input)):
+                    if n_step >= (len(batch_input) // 2):
+                        predictor.train()
+                    else:
+                        predictor.eval()
+
                     tensor_input4step = batch_input[[n_step]]
                     target4step = batch_target[[n_step]]
                     output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
+                    # output, hidden_state, attention_weights = predictor(tensor_input4step)
                     # if n_step >= batch_size:  # hidden state is accumulated
                     if n_step >= (len(batch_input) // 2):  # hidden state is accumulated
+                        predictor.train()
                         loss = criterion(output[0], target4step) / (len(batch_input) // 2)
                         loss.backward()
+                        # opt.step()  # TODO: think where should it be (here or after the loop)
                 else:
                     opt.step()
 
+            predictor.eval()
             ### EVALUATION ON EVERY PLAYER
             # for player_id in player_ids:
             for player_id in player_ids:
+                if player_id not in train_tensors_dict:
+                    continue
+
                 train_on_this_player = False
                 predictor.reset_hidden()
 
@@ -335,6 +427,11 @@ for time_step in time_step_list:
                 target = train_tensors_dict[player_id]['target']
                 target_raw = train_tensors_dict[player_id]['target_raw']
 
+                target_numpy = target.numpy()
+                if len(np.unique(target_numpy)) < 2:
+                    print(f'The same targets for player {player_id}')
+                    continue
+
                 hidden_state_list4player = []
                 cell_state_list4player = []
                 attention_weights_list4player = []
@@ -342,7 +439,8 @@ for time_step in time_step_list:
                 loss_list4player = []
                 predict_list4player = []
 
-                for n_step in tqdm.tqdm(range(len(input))):
+                # for n_step in tqdm.tqdm(range(len(input))):
+                for n_step in range(len(input)):
                     # print(n_step)
                     if train_on_this_player:
                         opt.zero_grad()
@@ -352,9 +450,9 @@ for time_step in time_step_list:
                     output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
                     predict_list4player.append(output[0].detach())
                     loss = criterion(output[0], target4step)
-                    if train_on_this_player:
-                        loss.backward()
-                        opt.step()
+                    # if train_on_this_player:
+                    #     loss.backward()
+                    #     opt.step()
 
                     hidden_state_list4player.append(hidden_state.detach().numpy().ravel())
                     cell_state_list4player.append(cell_state.detach().numpy().ravel())
@@ -364,6 +462,7 @@ for time_step in time_step_list:
                     loss_list4player.append(loss.detach().item())
 
                 loss4player = np.mean(loss_list4player)
+
                 auc4player = roc_auc_score(target.numpy(), np.array(predict_list4player))
                 # fig, ax = plt.subplots()
                 if attention:
@@ -406,6 +505,9 @@ for time_step in time_step_list:
 
                 loss4epoch_dict[mode].append(loss4player)
                 auc4epoch_dict[mode].append(auc4player)
+                if (player_id in player_ids_test) or (player_id in player_ids_val):
+                    aucs4players[player_id].append(auc4player)
+                    print(f"auc 4 player {player_id} = {round(auc4player, 2)}")
 
             # for mode in ['val']: #  ['train', 'val']:
             for mode in ['train', 'val', 'test']:
@@ -416,7 +518,7 @@ for time_step in time_step_list:
 
                 if len(auc4epoch_dict[mode]):
                     auc4epoch4mode = np.mean(auc4epoch_dict[mode])
-                    print(f'auc4epoch_dict_{mode}={auc4epoch4mode}')
+                    print(f'auc_{mode}={round(auc4epoch4mode, 3)}')
                     auc_list_dict[mode].append(auc4epoch4mode)
                     if mode == 'val':
                         val_score_new = auc4epoch4mode
@@ -443,7 +545,7 @@ for time_step in time_step_list:
 
         df4params = pd.DataFrame([[train_score_best, val_score_best, test_score_best, epoch_best]],
                                  index=index_array, columns=['score_train', 'score_val', 'score_test', 'best_epoch'])
-        df4params.to_csv(f'data/series_{suffix}.csv', header=True)
+        # df4params.to_csv(f'data/series_{suffix}.csv', header=True)
 
         df_results.loc[multi_index, 'score_train'] = train_score_best
         df_results.loc[multi_index, 'score_val'] = val_score_best
@@ -452,13 +554,15 @@ for time_step in time_step_list:
 
         for mode in ['train', 'val', 'test']:
             if len(loss_list_dict[mode]):
-                plt.plot(loss_list_dict[mode], label=mode)
-                plt.savefig(pic_folder + f'_{mode}_loss_list_last_{suffix}.png')
-                plt.close()
+                if plot:
+                    plt.plot(loss_list_dict[mode], label=mode)
+                    plt.savefig(pic_folder + f'_{mode}_loss_list_last_{suffix}.png')
+                    plt.close()
             if len(auc_list_dict[mode]):
-                plt.plot(auc_list_dict[mode], label=mode)
-                plt.savefig(pic_folder + f'_{mode}_auc_list_last_{suffix}.png')
-                plt.close()
+                if plot:
+                    plt.plot(auc_list_dict[mode], label=mode)
+                    plt.savefig(pic_folder + f'_{mode}_auc_list_last_{suffix}.png')
+                    plt.close()
 
 df_results.to_csv(f'data/df_results_{super_suffix}.csv')
 
@@ -475,17 +579,19 @@ df_results.to_csv(f'data/df_results_{super_suffix}.csv')
 ####### CLASSICAL ML ZONE
 # train_test_splitter = StratifiedKFold(n_splits=5)
 
-time_step_list = [5, 10, 20, 30, 40]  # 10 is already tested
+# time_step_list = [5, 10, 20, 30, 40]  # 10 is already tested
+time_step_list = [5, 10, 20, 30, 40, 60]  # 10 is already tested
+# window_size_list = [60, 120, 180, 300, 600]
 window_size_list = [300]
 n_repeat_list = list(range(10))
 plot = False
 results_list = []
 rf_0 = RandomForestClassifier(n_estimators=100, max_depth=3)
-rf_1 = RandomForestClassifier(n_estimators=100, max_depth=5)
+# rf_1 = RandomForestClassifier(n_estimators=100, max_depth=5)
 lr = LogisticRegression(solver='lbfgs')
 svm = SVC(probability=True, gamma='auto')
-alg_list = [lr, rf_0, rf_1, svm]
-alg_names_list = ['Logistic Regression', 'Random Forest 0', 'Random Forest 1', 'SVM']
+alg_list = [lr, rf_0, svm]
+alg_names_list = ['Logistic Regression', 'Random Forest', 'SVM']
 
 index_names = ['time_step', 'window_size', 'alg_name', 'n_repeat']
 multi_index_all = pd.MultiIndex.from_product([time_step_list, window_size_list, alg_names_list, n_repeat_list], names=index_names)
@@ -508,8 +614,18 @@ for time_step, window_size, n_repeat in itertools.product(time_step_list, window
 
     train_tensors_dict = {}
 
-    for player_id, df4train in data_dict_resampled_merged_with_target_scaled.items():
+    # for player_id, df4train in data_dict_resampled_merged_with_target_scaled.items():
+    for player_id, in player_ids:
+        df4train = data_dict_resampled_merged_with_target_scaled[player_id]
         train_tensors4player = {}
+
+        mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
+
+        if mask2keep.sum() == 0:
+            print(f'Not enough data for player {player_id}')
+            continue
+
+        df4train = df4train.loc[mask2keep, :]
         df4train.fillna(0, inplace=True)
 
         target_future = df4train[target_column_future].values
@@ -542,6 +658,7 @@ for time_step, window_size, n_repeat in itertools.product(time_step_list, window
 
         train_tensors4player['input'] = torch.Tensor(df4train.values)
         train_tensors4player['target'] = torch.Tensor(target_binary)  # FOR logloss metric
+        train_tensors4player['target_raw'] = torch.Tensor(target)  # FOR logloss metric
         # train_tensors4player['target'] = torch.Tensor(target)  # FOR MSE metric
         # train_tensors4player['target'] = torch.Tensor(target_binary)
         # train_tensors4player['target_raw'] = torch.Tensor(target_binary)
@@ -586,7 +703,7 @@ for time_step, window_size, n_repeat in itertools.product(time_step_list, window
 
         df_results.loc[multi_index] = alg_score
 
-df_results.to_csv('data/df_results_classic_{suffix}.csv')
+df_results.to_csv(f'data/df_results_classic_{suffix}.csv')
 
 
 

@@ -242,6 +242,7 @@ def plot_measurements(
         alpha=0.9,
         alpha_background=0.5,
         sharex='col',
+        linewidth=1,
 ):
     n_plots = len(analyser_column_pairs_list)
 
@@ -270,11 +271,17 @@ def plot_measurements(
         data2plot = analyser.df[column]
         sensor_name = analyser.sensor_name
 
-        ax.plot(times, data2plot.values, label='nothing', color='black', alpha=alpha_background)
-        ax.tick_params(axis='both', labelsize=fontsize-12)
-        ax.set_ylabel(column, fontsize=fontsize)
+        # ax.plot(times, data2plot.values, label='nothing', color='black', alpha=alpha_background)
+        ax.plot(times, data2plot.values, color='black', alpha=alpha_background)
+        ax.tick_params(axis='both', labelsize=fontsize-8)
+        # ax.set_ylabel(column, fontsize=fontsize)
+        column_text = 'chair ' + column if (column.startswith('acc') or column.startswith('gyro')) else column
+        column_text = 'heart rate' if column_text == 'hrm' else column_text
+        column_text = 'skin resistance' if column_text =='resistance' else column_text
+        column_text = 'muscle activity' if column_text =='muscle_activity' else column_text
+        ax.set_title(column_text, fontsize=fontsize)
         if n_row == n_rows - 1:
-            ax.set_xlabel('time, s', fontsize=fontsize)
+            ax.set_xlabel('time, s', fontsize=fontsize + 7)
 
         for event_intervals in event_intervals_list:
             # intervals_list = event_intervals.intervals_list
@@ -292,6 +299,7 @@ def plot_measurements(
                     # label=event_label,
                     color=color,
                     alpha=alpha,
+                    linewidth=linewidth,
                 )
 
             ax.plot([], [], label=event_label, color=color)
@@ -301,7 +309,8 @@ def plot_measurements(
         suptitle = f'{sensor_name.capitalize()} sensors data, session_id = {session_id}'  # TODO: adapt for multiple case
         fig.suptitle(suptitle, fontsize=fontsize + 2)
 
-    fig.tight_layout(rect=[0, 0.00, 1, 0.9625])
+    # fig.tight_layout(rect=[0, 0.00, 1, 0.9625])
+    fig.tight_layout(rect=[0, 0.00, 1, 1])
 
     # fig.tight_layout(rect=[0, 0.03, 1, 0.95])
     # fig.subplots_adjust(top=0.5)

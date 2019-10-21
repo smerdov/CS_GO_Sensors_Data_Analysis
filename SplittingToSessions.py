@@ -15,7 +15,7 @@ data_path = 'Anonimised Data/Data'
 processed_data_path = 'data/players_data_processed'
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--session_duration', default=60 * 10, type=int)
+parser.add_argument('--session_duration', default=60 * 5, type=int)
 parser.add_argument('--max_sessions_per_player', default=3, type=int)
 
 # session_duration = 60 * 5
