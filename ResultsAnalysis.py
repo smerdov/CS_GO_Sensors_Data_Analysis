@@ -34,7 +34,8 @@ versions_list = [
     # 'time_step_1',
     # 'time_step_2',
     # # 'time_step_1_60',
-    'prefinal',
+    # 'february_27',
+    'march_1',
 ]
 classic_versions_list = [
     # 'window_size_0',
@@ -57,7 +58,8 @@ for version in versions_list:
     df_results_new = pd.read_csv(f'data/df_results_{version}.csv')
     df_results_new = df_results_new.loc[df_results_new['score_val'] != -1, :]
     df_results_new.set_index(['time_step', 'window_size', 'batch_size', 'attention', 'hidden_size', 'normalization', 'n_repeat'], inplace=True)
-    df_results_new = df_results_new[['score_test', 'score_val']]
+    # df_results_new = df_results_new[['score_test', 'score_val']]
+    df_results_new = df_results_new[['score_test', 'dumb_score_test', 'score_val', 'dumb_score_val']]
     df_results = pd.concat([df_results, df_results_new])
 
 for version in classic_versions_list:

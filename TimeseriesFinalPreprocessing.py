@@ -32,7 +32,9 @@ target_columns = [column for column in df_all.columns if column.startswith(targe
 # columns_order = sorted(df_all.drop(columns=target_columns).columns)
 columns_order = ['gaze_movement', 'mouse_movement', 'mouse_scroll', 'muscle_activity',
                  'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'hrm', 'resistance',
-                 'temperature', 'co2', 'humidity']  # This is custom listing!!!
+                 # 'temperature',
+                 'co2'#, 'humidity'
+                 ]  # This is custom listing!!!
 # columns_order = ['als', 'co2', 'hrm', 'hrm2', 'humidity', 'mic',
 #                  'muscle_activity', 'resistance', 'temperature']
 # columns_order.remove(target_column)
@@ -44,7 +46,7 @@ columns_order = ['gaze_movement', 'mouse_movement', 'mouse_scroll', 'muscle_acti
 ss = StandardScaler()
 ss.fit(df_all.loc[:, columns_order])
 joblib.dump(ss, 'data/ss_0')
-joblib.dump(ss, 'data/columns_order_0')
+joblib.dump(columns_order, 'data/columns_order_0')
 
 # ss.inverse_transform(df_all.values)
 
