@@ -17,7 +17,12 @@ pic_folder = 'pic/'
 parser = argparse.ArgumentParser()
 parser.add_argument('--TIMESTEP', default=10, type=float)
 parser.add_argument('--plot', default=0, type=int)
-args = parser.parse_args()
+if __debug__:
+    print('SUPER WARNING!!! YOU ARE INTO DEBUG MODE', file=sys.stderr)
+    args = parser.parse_args(['--TIMESTEP=10', '--plot=1'])
+else:
+    args = parser.parse_args()
+
 TIMESTEP = args.TIMESTEP
 plot = args.plot
 
@@ -46,13 +51,18 @@ def square_plot(df, columns2plot, timecol='Timestamp', suffix='last'):
     fig.tight_layout()
     fig.savefig(f'{pic_folder}square_plot_{suffix}.png')
 
-player_id = '10'  # DEBUG
+# player_id = '10'  # DEBUG
 window_sizes_list = [60, 120, 180, 300, 600]
 
+# player_id = '0'
 for player_id in data_dict_resampled_merged:
     df_merged = data_dict_resampled_merged[player_id]
 
     mask_negative = df_merged.index < pd.to_timedelta(0)  # I just don't fucking care about that
+    if mask_negative.sum():
+        print('EMERGENCY!')
+        break
+
     df_merged = df_merged.loc[~mask_negative]
 
 
@@ -61,8 +71,12 @@ for player_id in data_dict_resampled_merged:
         target_colname = f'kills_proportion_{window_size}'
 
         window_steps = int(window_size // TIMESTEP)
-        df_stats = df_merged[['kill', 'death']].rolling(f'{window_size}s', min_periods=window_steps).sum()
+        # df_stats = df_merged[['kill', 'death']].rolling(f'{window_size}s', min_periods=window_steps).sum()
+        df_stats = df_merged[['kill', 'death']].rolling(f'{window_size}s', min_periods=window_steps // 2).sum()
         df_stats[target_colname] = df_stats['kill'] / (df_stats['death'] + df_stats['kill'])
+
+        print(target_colname)
+        print(df_stats[target_colname])
 
         if plot:
             plt.plot(df_stats[target_colname], label=window_size)

@@ -17,7 +17,12 @@ gamedata_dict = joblib.load('data/gamedata_dict')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--TIMESTEP', default=10, type=float)
-args = parser.parse_args()
+if __debug__:
+    print('SUPER WARNING!!! YOU ARE INTO DEBUG MODE', file=sys.stderr)
+    args = parser.parse_args(['--TIMESTEP=10'])
+else:
+    args = parser.parse_args()
+
 TIMESTEP = args.TIMESTEP
 
 
@@ -45,11 +50,8 @@ for player_id in gamedata_dict:
 
     df_start_time = df_resampled4player['time'].min()
 
-    # x = (df_resampled4player['time'] - df_start_time) // TIMESTEP
-    # x.nunique()
-
-    times_kills = timestamp2step(gamedata_dict4player['times_kills'], df_start_time)
-    times_deaths = timestamp2step(gamedata_dict4player['times_is_killed'], df_start_time)
+    times_kills = timestamp2step(gamedata_dict4player['times_kills'], df_start_time)  # TODO: check. I found a bug
+    times_deaths = timestamp2step(gamedata_dict4player['times_is_killed'], df_start_time)  # TODO: check. I found a bug
     if 'shootout_times_start_end' in gamedata_dict4player:
         times_shootouts = timestamp2step(gamedata_dict4player['shootout_times_start_end'], df_start_time)
     else:
@@ -70,15 +72,23 @@ for player_id in gamedata_dict:
     df_resampled4player['death'] = 0
     df_resampled4player['shootout'] = 0
 
+    n_steps = len(df_resampled4player)
 
     for time_kill in times_kills:
-        df_resampled4player.loc[time_kill, 'kill'] = 1
+        if (0 <= time_kill < n_steps):
+            # df_resampled4player.loc[time_kill, 'kill'] = 1
+            df_resampled4player.loc[time_kill, 'kill'] += 1  # I fixed a bug
 
     for time_death in times_deaths:
-        df_resampled4player.loc[time_death, 'death'] = 1
+        if (0 <= time_death < n_steps):
+            # df_resampled4player.loc[time_death, 'death'] = 1
+            df_resampled4player.loc[time_death, 'death'] += 1  # I fixed a bug
 
     for time_shootout_start, time_shootout_end in times_shootouts:
-        df_resampled4player.loc[time_shootout_start:time_shootout_end, 'shootout'] = 1
+        assert time_shootout_start <= time_shootout_end
+        if (0 <= time_shootout_start < n_steps):
+            # df_resampled4player.loc[time_shootout_start:time_shootout_end, 'shootout'] = 1
+            df_resampled4player.loc[time_shootout_start:time_shootout_end+1, 'shootout'] += 1  # I fixed a bug
 
     df_resampled4player['timedelta'] = pd.to_timedelta(df_resampled4player.index.values * TIMESTEP, unit='s')
 

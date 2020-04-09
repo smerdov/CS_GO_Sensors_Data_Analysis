@@ -35,9 +35,16 @@ parser.add_argument('--normalization_list', nargs='+', type=int)
 parser.add_argument('--player_ids', nargs='+')
 parser.add_argument('--loss', type=str, choices=['bce', 'mse'])
 parser.add_argument('--super_suffix', type=str)
+parser.add_argument('--n_attention_layers_list', nargs='+', type=int)
+parser.add_argument('--n_dense_layers_list', nargs='+', type=int)
+parser.add_argument('--n_attention_layers_with_hidden_state_list', nargs='+', type=int)
+parser.add_argument('--cell_type_list', nargs='+', type=str)
+parser.add_argument('--opt_list', nargs='+', type=str)
+parser.add_argument('--target_verbose', action='store_true')
 
 parser.add_argument('--attention_multiplier', default=1, type=int)
-parser.add_argument('--target_type', type=str, choices=['more_than_avg'], default='more_than_avg')
+parser.add_argument('--target_type', type=str, choices=['more_than_avg', 'more_than_median', 'more_than_before'],
+                    default='more_than_median')
 parser.add_argument('--scorer', default='auc', type=str)
 parser.add_argument('--n_epoches', default=100, type=int)
 parser.add_argument('--batches4epoch', default=20, type=int)
@@ -51,6 +58,9 @@ parser.add_argument('--plot_target', default=0, type=int)
 parser.add_argument('--recreate_dataset', default=0, type=int)
 parser.add_argument('--target_prefix', default='kills_proportion')
 parser.add_argument('--verbose', default=0, type=int)
+parser.add_argument('--warmup', default=10, type=int)
+use_dumb_predict = False
+# parser.add_argument('--opt', default='adam', type=str, choices=['adam', 'sgd'])
 
 def get_lr_by_epoch(epoch, base_lr=0.001, warmup=10):
     if epoch < warmup:
@@ -66,8 +76,12 @@ def get_train_val_test_sizes(player_ids, train_proportion=0.55):
     return train_size, val_size, test_size
 
 def get_final_target(target_past, target_future, args):
-    if args.target_type == 'more_than_avg':
+    if args.target_type == 'more_than_median':
         target = target_future - np.median(target_future)
+    elif args.target_type == 'more_than_avg':
+        target = target_future - np.mean(target_future)
+    elif args.target_type == 'more_than_before':
+        target = target_future - target_past
     else:
         raise ValueError(f'I don\'t know target_type {args.target_type}')
 
@@ -128,7 +142,8 @@ def plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_
     # plt.savefig(pic_folder + f'attention/hidden_state_player_{player_id}_epoch_{n_epoch}_{suffix}.png')
     # plt.close()
 
-    if args.scorer == roc_auc_score:
+    # if args.scorer == roc_auc_score:
+    if True:
         ax[2, 0].plot(target_raw, label='Perfomance difference', color='teal')
         ax[2, 0].set_title('Perfomance difference', fontsize=fontsize + 2)
         # ax[3, 0].plot(target, label='Binary Target', color='peru')
@@ -287,7 +302,7 @@ def get_dict_of_lists_for_logging():
 def evaluate(
         predictor,
         player_ids,
-        train_tensors_dict,
+        input_tensors_dict,
         player_ids_train,
         player_ids_val,
         player_ids_test,
@@ -304,17 +319,17 @@ def evaluate(
     predictor.eval()
 
     for player_id in player_ids:
-        if player_id not in train_tensors_dict:
+        if player_id not in input_tensors_dict:
             continue
 
         mode = get_mode(player_id, player_ids_train, player_ids_val, player_ids_test)
         train_on_this_player = False
         predictor.reset_hidden()
 
-        input = train_tensors_dict[player_id]['input']
-        target4player = train_tensors_dict[player_id]['target']
-        target_raw = train_tensors_dict[player_id]['target_raw']
-        dumb_predict = train_tensors_dict[player_id]['dumb_predict']
+        input = input_tensors_dict[player_id]['input']
+        target4player = input_tensors_dict[player_id]['target']
+        target_raw = input_tensors_dict[player_id]['target_raw']
+        dumb_predict = input_tensors_dict[player_id]['dumb_predict']
 
         target_numpy = target4player.numpy()
         if len(np.unique(target_numpy)) < 2:
@@ -337,26 +352,35 @@ def evaluate(
 
             tensor_input4step = input[[n_step]]
             target4step = target4player[[n_step]]
-            output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
-            predict_list4player.append(output[0].detach())
-            loss = args.criterion(output[0], target4step)
+            # output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
+            forward_results = predictor(tensor_input4step)
+            output = forward_results['output'][0]
+            hidden_state = forward_results['hidden_state']
+            predict_list4player.append(output.detach())
+            loss = args.criterion(output, target4step)
             # dumb_predict4step = dumb_predict[n_step]
 
-            hidden_state_list4player.append(hidden_state.detach().numpy().ravel())
-            cell_state_list4player.append(cell_state.detach().numpy().ravel())
+            # hidden_state_list4player.append(hidden_state.detach().numpy().ravel())
+            hidden_state_list4player.append(hidden_state.numpy().ravel())  #  It should be detached already
+            if 'cell_value' in forward_results:
+                cell_state_list4player.append(forward_results['cell_value'].detach().numpy().ravel())
             if attention:
+                attention_weights = forward_results['attention_weights']
                 attention_weights_list4player.append(attention_weights.detach().numpy().ravel())
-            outputs_list4player.append(output.detach()[0])
+            outputs_list4player.append(output.detach())
             loss_list4player.append(loss.detach().item())
 
         loss4player = np.mean(loss_list4player)
 
         if args.scorer.__name__ == 'accuracy_score':
-            predict_binary = 1 * (np.array(predict_list4player) > 0.5)
+            predict_binary = 1 * (np.array(predict_list4player) > 0.5)  # TODO: parametrize the threshold
             score4player = args.scorer(target4player.numpy().astype(int), predict_binary)
-            dumb_score4player = args.scorer(target4player.numpy(), np.array(dumb_predict))  # Maybe convert predict to binary...
+            # if use_dumb_predict:
+            dumb_predict_binary = np.array(dumb_predict) > 0.5
+            dumb_score4player = args.scorer(target4player.numpy(), dumb_predict_binary)  # Maybe convert predict to binary...
         else:
             score4player = args.scorer(target4player.numpy(), np.array(predict_list4player))
+            # if use_dumb_predict:
             dumb_score4player = args.scorer(target4player.numpy(), np.array(dumb_predict))
 
         if attention:
@@ -388,13 +412,17 @@ def evaluate(
 
     return loss4epoch_dict, score4epoch_dict, dumb_score4epoch_dict
 
-def get_train_tensors_dict(player_ids, data_dict_resampled_merged_with_target_scaled, target_column_future, target_column_past, target_columns, args):
-    train_tensors_dict = {}
+def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_scaled, target_column_future, target_column_past, target_columns, args):
+    input_tensors_dict = {}
 
     for player_id in player_ids:
         train_tensors4player = {}
         df4train = data_dict_resampled_merged_with_target_scaled[player_id].copy()
-        mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
+        # mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
+        if args.target_type =='more_than_median':
+            mask2keep = df4train[target_column_future].notnull()
+        else:
+            mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
 
         if mask2keep.sum() == 0:
             print(f'Not enough data for player {player_id}')
@@ -405,10 +433,16 @@ def get_train_tensors_dict(player_ids, data_dict_resampled_merged_with_target_sc
 
         target_future = df4train[target_column_future].values
         target_past = df4train[target_column_past].values
+        # print(target_past)
         target = get_final_target(target_past=target_past, target_future=target_future, args=args)
         dumb_predict = get_dumb_predict(target_past=target_past, target_future=target_future)
         margin = 0  # 0
-        target_binary = (target > margin) * 1
+        target_binary = (target >= margin) * 1
+        if args.target_verbose:
+            print(target_future)
+            print(f'target_binary={target_binary}')
+            print(f'target_binary.mean()={target_binary.mean()}')
+        # print(f'target_binary.mean()={target_binary.mean()}')
 
         df4train.drop(columns=target_columns, inplace=True)
         df4train.reset_index(drop=True, inplace=True)
@@ -429,14 +463,17 @@ def get_train_tensors_dict(player_ids, data_dict_resampled_merged_with_target_sc
         else:
             train_tensors4player['target'] = torch.Tensor(target)  # FOR logloss metric
             train_tensors4player['target_raw'] = torch.Tensor(target)  # FOR logloss metric
-        train_tensors_dict[player_id] = train_tensors4player
+        input_tensors_dict[player_id] = train_tensors4player
 
-    return train_tensors_dict, n_features
+    return input_tensors_dict, n_features
 
 
-def run_experiment(time_step, window_size, batch_size, hidden_size, attention, normalization, n_repeat, super_suffix, train_size, val_size, args):
+def run_experiment(time_step, window_size, batch_size, hidden_size, attention, normalization, n_repeat,
+                   n_attention_layers, n_dense_layers, n_attention_layers_with_hidden_state, cell_type, opt_type,
+                   super_suffix, train_size, val_size, args):
     best_attentions_dict = {}
-    suffix = f'{time_step}_{window_size}_{batch_size}_{hidden_size}_{attention}_{normalization}_{n_repeat}_{super_suffix}'
+    suffix = f'{time_step}_{window_size}_{batch_size}_{hidden_size}_{attention}_{normalization}_{n_repeat}_' \
+             f'{n_attention_layers}_{n_dense_layers}_{n_attention_layers_with_hidden_state}_{cell_type}_{opt_type}_{super_suffix}'
     # print(suffix)
     patience = 0
     val_score_best = 0
@@ -455,7 +492,7 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
     target_column_past = f'{args.target_prefix}_{window_size}_4past'
     target_column_future = f'{args.target_prefix}_{window_size}_4future'
 
-    train_tensors_dict, n_features = get_train_tensors_dict(
+    input_tensors_dict, n_features = get_input_tensors_dict(
         args.player_ids,
         data_dict_resampled_merged_with_target_scaled,
         target_column_future,
@@ -467,15 +504,24 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
 
     predictor = PredictorCell(input_size=n_features, hidden_size=hidden_size, attention=attention,
                               normalization=normalization, classification=args.classification,
-                              attention_multiplier=args.attention_multiplier)
-    opt = Adam(predictor.parameters())
-    # opt = SGD(predictor.parameters(), lr=1e-1, momentum=0.9, weight_decay=1e-4, nesterov=True)
+                              n_attention_layers=n_attention_layers, n_dense_layers=n_dense_layers,
+                              n_attention_layers_with_hidden_state=n_attention_layers_with_hidden_state,
+                              cell_type=cell_type)
+    if opt_type == 'adam':
+        base_lr = 1e-3
+        opt = Adam(predictor.parameters())
+    elif opt_type == 'sgd':
+        base_lr = 1e-1
+        opt = SGD(predictor.parameters(), lr=base_lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
+    else:
+        raise ValueError(f'optimizer {args.opt} is not supported')
 
     # scheduler = torch.optim.lr_scheduler.ExponentialLR(opt, gamma=0.9)
-    batch_generator = BatchGenerator(train_tensors_dict, list(train_tensors_dict.keys()))
+    # batch_generator = BatchGenerator(input_tensors_dict, list(input_tensors_dict.keys()))
+    batch_generator = BatchGenerator(input_tensors_dict, player_ids_train)
 
     for n_epoch in range(args.n_epoches):
-        lr = get_lr_by_epoch(n_epoch)
+        lr = get_lr_by_epoch(n_epoch, base_lr=base_lr, warmup=args.warmup)
         for param_group in opt.param_groups:
             param_group['lr'] = lr
 
@@ -508,25 +554,32 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
 
                 tensor_input4step = batch_input[[n_step]]
                 target4step = batch_target[[n_step]]
-                output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
+                # output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
+                forward_results = predictor(tensor_input4step)
+                output = forward_results['output'][0]
+                # hidden_state = forward_results['hidden_state']
+                # attention_weights = forward_results['hidden_state']
+                # output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
                 # output, hidden_state, attention_weights = predictor(tensor_input4step)
                 # if True:  # hidden state is accumulated
                 # if n_step >= (batch_size_actual // 2):  # hidden state is accumulated
                 if train_on_this_batch:
                     # predictor.train()
-                    # loss = criterion(output[0], target4step) / (batch_size_actual // 2)
-                    loss = args.criterion(output[0], target4step) / (batch_size_actual - args.hidden_state_warmup)
+                    # loss = criterion(output, target4step) / (batch_size_actual // 2)
+                    opt.zero_grad()
+                    loss = args.criterion(output, target4step) / (batch_size_actual - args.hidden_state_warmup)
                     loss.backward()
-                    # opt.step()  # TODO: think where should it be (here or after the loop)
+                    opt.step()  # TODO: think where should it be (here or after the loop)
             else:
-                opt.step()
+                # opt.step()
+                pass
 
         ### EVALUATION ON EVERY PLAYER
         # for player_id in player_ids:
         loss4epoch_dict, score4epoch_dict, dumb_score4epoch_dict = evaluate(
             predictor,
             args.player_ids,
-            train_tensors_dict,
+            input_tensors_dict,
             player_ids_train,
             player_ids_val,
             player_ids_test,
@@ -567,7 +620,8 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
                 # print(f'dumb score on {mode} is {dumb_score4mode}')
                 dumb_score_list_dict[mode].append(dumb_score4mode)
 
-    index_array = [[time_step], [window_size], [batch_size], [hidden_size], [attention], [normalization], [n_repeat]]
+    index_array = [[time_step], [window_size], [batch_size], [hidden_size], [attention], [normalization], [n_repeat],
+                   [n_attention_layers], [n_dense_layers], [n_attention_layers_with_hidden_state], [cell_type], [opt_type]]
     multi_index = pd.MultiIndex.from_arrays(index_array, names=index_names)
 
     df_results4experiment = pd.DataFrame(index=multi_index)
@@ -597,7 +651,7 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
     #             plt.savefig(pic_folder + f'_{mode}_auc_list_last_{suffix}.png')
     #             plt.close()
 
-    return df_results4experiment
+    return df_results4experiment, suffix
 
 def run_experiments(
         time_step_list,
@@ -609,26 +663,46 @@ def run_experiments(
         n_repeat_list,
         args,
 ):
-    train_size, val_size, test_size = get_train_val_test_sizes(args.player_ids)
-    print(f'train_size, val_size, test_size = {train_size}, {val_size}, {test_size}')
+    # print(f'train_size, val_size, test_size = {train_size}, {val_size}, {test_size}')
     # df_results = get_df_results(multi_index_all)
-    df_results = pd.DataFrame()
+    # df_results = pd.DataFrame()
+    df_results_list = []
+    suffixes = []
 
     for time_step in time_step_list:
         if args.recreate_dataset:
             recreate_dataset_func(time_step)
 
-        groups = itertools.product(window_size_list, batch_size_list, hidden_size_list, attention_list, normalization_list, n_repeat_list)
+        groups = itertools.product(
+            window_size_list,
+            batch_size_list,
+            hidden_size_list,
+            attention_list,
+            normalization_list,
+            n_repeat_list,
+            args.n_attention_layers_list,
+            args.n_dense_layers_list,
+            args.n_attention_layers_with_hidden_state_list,
+            args.cell_type_list,
+            args.opt_list,
+        )
 
         for group in groups:
-            window_size, batch_size, hidden_size, attention, normalization, n_repeat = group
+            window_size, batch_size, hidden_size, attention, normalization, n_repeat, n_attention_layers,\
+                n_dense_layers, n_attention_layers_with_hidden_state, cell_type, opt_type = group
 
-            df_results4experiment = run_experiment(time_step, window_size, batch_size, hidden_size, attention, normalization, n_repeat, super_suffix,
-                                                   train_size, val_size, args)
+            print(f"Experiment {group}")
+
+            df_results4experiment, suffix = run_experiment(time_step, window_size, batch_size, hidden_size, attention,
+                                                   normalization, n_repeat, n_attention_layers, n_dense_layers,
+                                                   n_attention_layers_with_hidden_state, cell_type, opt_type, super_suffix,
+                                                   args.train_size, args.val_size, args)
             # print(df_results4experiment)
-            df_results = df_results.append(df_results4experiment)
+            # df_results = df_results.append(df_results4experiment)
+            df_results_list.append(df_results4experiment)
+            suffixes.append(suffix)
 
-    return df_results
+    return df_results_list, suffixes
 
 
 if __name__ == '__main__':
@@ -642,9 +716,10 @@ if __name__ == '__main__':
     super_suffix = args.super_suffix
     n_repeat_list = list(range(args.n_repeat))
 
-    multi_index_all = pd.MultiIndex.from_product([time_step_list, window_size_list, batch_size_list,
-                                                  hidden_size_list, attention_list, normalization_list, n_repeat_list],
-                                                 names=index_names)
+    args.train_size, args.val_size, args.test_size = get_train_val_test_sizes(args.player_ids)
+    # multi_index_all = pd.MultiIndex.from_product([time_step_list, window_size_list, batch_size_list,
+    #                                               hidden_size_list, attention_list, normalization_list, n_repeat_list,],
+    #                                              names=index_names)
 
     if args.scorer == 'auc':
         args.scorer = roc_auc_score
@@ -661,8 +736,9 @@ if __name__ == '__main__':
         raise ValueError(f'I don\'t know loss {args.loss}')
 
     args.classification = (args.scorer == roc_auc_score) or (args.scorer == accuracy_score)
+    print(f'classification={args.classification}')
 
-    df_results = run_experiments(
+    df_results_list, suffixes = run_experiments(
         time_step_list,
         window_size_list,
         batch_size_list,
@@ -673,7 +749,25 @@ if __name__ == '__main__':
         args,
     )
 
-    df_results.to_csv(f'data/df_results_{super_suffix}.csv')
+    path2results = f'data/exp_results/{super_suffix}'
+    if not os.path.exists(path2results):
+        os.mkdir(path2results)
+
+    for df_results, suffix in zip(df_results_list, suffixes):
+        df_results.to_csv(f'{path2results}/df_results_{suffix}.csv')
+
+    # df_results = run_experiment(
+    #     time_step,
+    #     window_size,
+    #     batch_size,
+    #     hidden_size,
+    #     attention,
+    #     normalization,
+    #     n_repeat,
+    #     args,
+    # )
+
+    # df_results.to_csv(f'data/df_results_{super_suffix}.csv')  # Was before Match 8th
 
 
 

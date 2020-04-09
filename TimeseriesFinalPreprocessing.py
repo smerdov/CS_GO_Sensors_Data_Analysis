@@ -17,7 +17,12 @@ pic_folder = 'pic/'
 parser = argparse.ArgumentParser()
 parser.add_argument('--TIMESTEP', default=10, type=float)
 parser.add_argument('--plot', default=0, type=int)
-args = parser.parse_args()
+if __debug__:
+    print('SUPER WARNING!!! YOU ARE INTO DEBUG MODE', file=sys.stderr)
+    args = parser.parse_args(['--TIMESTEP=10', '--plot=1'])
+else:
+    args = parser.parse_args()
+
 TIMESTEP = args.TIMESTEP
 plot = args.plot
 
@@ -32,9 +37,8 @@ target_columns = [column for column in df_all.columns if column.startswith(targe
 # columns_order = sorted(df_all.drop(columns=target_columns).columns)
 columns_order = ['gaze_movement', 'mouse_movement', 'mouse_scroll', 'muscle_activity',
                  'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z', 'hrm', 'resistance',
-                 # 'temperature',
-                 'co2'#, 'humidity'
-                 ]  # This is custom listing!!!
+                 'temperature',
+                 'co2', 'humidity']  # This is custom listing!!!
 # columns_order = ['als', 'co2', 'hrm', 'hrm2', 'humidity', 'mic',
 #                  'muscle_activity', 'resistance', 'temperature']
 # columns_order.remove(target_column)
