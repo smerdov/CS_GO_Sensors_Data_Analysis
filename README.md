@@ -1,5 +1,5 @@
 This repository contains code for analysis of data collected from several sensors,
-including smart chair, EMG, GSR, eye tracker, heart rate monitor, mouse, keyboard, environmental data, etc.
+including a smart chair, EMG, GSR, eye tracker, heart rate monitor, mouse, keyboard, environmental data, etc.
 
 
 Sensor data represent activity of participants playing Counter-Strike: Global Offensive for about 30 minutes each.
