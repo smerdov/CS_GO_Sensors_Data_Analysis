@@ -5,7 +5,287 @@ import pandas as pd
 import torch.nn.functional as F
 pd.options.display.max_columns = 30
 
-class PredictorCell(nn.Module):
+class BaseModel(nn.Module):
+
+    def __init__(self,
+                 input_size=9,
+                 hidden_size=16,
+                 attention=1,
+                 alpha=0.01,
+                 eps=0.01,
+                 normalization=True,
+                 classification=True,
+                 n_attention_layers=2,
+                 n_dense_layers=2,
+                 n_attention_layers_with_hidden_state=1,
+                 cell_type='gru',
+                 detach=True):
+        super().__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.n_dense_layers = n_dense_layers
+        self.n_attention_layers = n_attention_layers
+        self.n_attention_layers_with_hidden_state = n_attention_layers_with_hidden_state
+        self.cell_type = cell_type
+        self._attention_layers_init()
+        self._dense_layers_init()
+        self.detach = detach
+
+        if cell_type == 'gru':
+            self.cell = nn.GRUCell(input_size=self.input_size, hidden_size=self.hidden_size)
+        elif cell_type == 'rnn':
+            self.cell = nn.RNNCell(input_size=self.input_size, hidden_size=self.hidden_size)
+        elif cell_type == 'lstm':
+            self.cell = nn.LSTMCell(input_size=self.input_size, hidden_size=self.hidden_size)
+
+
+    def _attention_layers_init(self):
+        # assert self.n_attention_layers_with_hidden_state <= self.n_attention_layers
+
+        # self.attention_layers_list = []
+        for n_attention_layer in range(self.n_attention_layers):
+            if n_attention_layer < self.n_attention_layers_with_hidden_state:
+                layer_input_size = self.input_size + self.hidden_size
+            else:
+                layer_input_size = self.input_size
+
+            layer_output_size = self.input_size
+
+            new_attention_layer = nn.Linear(layer_input_size, layer_output_size)
+            # self.attention_layers_list.append(new_attention_layer)
+            setattr(self, f"attention_{n_attention_layer}", new_attention_layer)
+
+    def _dense_layers_init(self):
+        for n_dense_layer in range(self.n_dense_layers):
+            if n_dense_layer == 0:
+                if self.cell_type == 'no_cell':
+                    layer_input_size = self.input_size
+                else:
+                    # layer_input_size = self.hidden_size
+                    layer_input_size = self.hidden_size  // 2 ** n_dense_layer
+            else:
+                # layer_input_size = self.hidden_size
+                layer_input_size = self.hidden_size  // 2 ** n_dense_layer
+
+            if n_dense_layer < self.n_dense_layers - 1:  # Not the last layer
+                # layer_output_size = self.hidden_size
+                layer_output_size = self.hidden_size // 2 ** (n_dense_layer + 1)
+            else:
+                layer_output_size = 1
+
+            new_dense_layer = nn.Linear(layer_input_size, layer_output_size)
+            setattr(self, f"dense_{n_dense_layer}", new_dense_layer)
+
+    def _attention_forward(self, x, hidden_state):
+        # if self.attention:
+        for n_attention_layer in range(self.n_attention_layers):
+            attention_layer = getattr(self, f"attention_{n_attention_layer}")
+
+            if n_attention_layer < self.n_attention_layers_with_hidden_state:
+                layer_input = torch.cat([x, hidden_state], dim=1)
+            else:
+                layer_input = x
+
+            x = attention_layer(layer_input)
+            if n_attention_layer < self.n_attention_layers - 1:  # If that's not the last layer => apply nonlinearity
+                x = torch.relu(x)
+                # x = torch.tanh(x)
+
+        x = torch.clamp(x, 0, 1)
+
+        return x
+
+    def _dense_forward(self, x):
+        for n_dense_layer in range(self.n_dense_layers):
+            dense_layer = getattr(self, f"dense_{n_dense_layer}")
+            x = dense_layer(x)
+            if n_dense_layer < self.n_dense_layers - 1:  # If that's not the last layer => apply nonlinearity
+                # x = torch.tanh(x)
+                x = torch.relu(x)
+
+        return x
+
+    def reset_hidden(self):
+        if self.cell_type != 'no_cell':
+            # self.hidden = torch.zeros(size=(1, self.hidden_size))
+            self.hidden = torch.normal(mean=0, std=0.01, size=(1, self.hidden_size))
+            if self.cell_type == 'lstm':
+                # self.cell_value = torch.zeros(size=(1, self.hidden_size))
+                self.cell_value = torch.normal(mean=0, std=0.01, size=(1, self.hidden_size))
+
+    def _apply_attention(self, x, attention_weights):
+        return x * attention_weights
+
+    def _cell_forward(self, x):
+        forward_results = {}
+
+        if self.cell_type == 'no_cell':
+            return x, forward_results
+
+        if self.cell_type in ('rnn', 'gru'):
+            hidden = self.cell(x, self.hidden)
+        elif self.cell_type in ('lstm',):
+            hidden, cell_value = self.cell(x, (self.hidden, self.cell_value))
+            if self.detach:
+                self.cell_value = cell_value.detach()
+            else:
+                self.cell_value = cell_value
+            forward_results['cell_value'] = cell_value
+        else:
+            raise ValueError(f'Unknown cell type {self.cell_type}')
+
+        if self.detach:
+            self.hidden = hidden.detach()
+        else:
+            self.hidden = hidden
+
+        return hidden, forward_results
+
+    def forward(self, x):
+        forward_results = {}
+
+        if self.n_attention_layers:
+            attention_logits = self._attention_forward(x, self.hidden)
+            x = self._apply_attention(x, attention_logits)
+
+        x, forward_results_cell = self._cell_forward(x)
+        forward_results.update(forward_results_cell)
+
+        x = self._dense_forward(x)
+        x = torch.sigmoid(x)
+        forward_results['output'] = x
+        forward_results['hidden_state'] = torch.zeros(size=(1, 1))
+        forward_results['attention_weights'] = torch.zeros(size=(1, 1))
+
+        return forward_results
+
+
+class SplittedNN(BaseModel):
+
+    def __init__(self, input_size, hidden_size, n_dense_layers, n_attention_layers,
+                 n_attention_layers_with_hidden_state, cell_type, detach=True, groups=(4,3,4)):
+        self.groups = groups
+        self.n_groups = len(groups)
+
+        super().__init__(input_size, hidden_size, n_dense_layers, n_attention_layers,
+                 n_attention_layers_with_hidden_state, cell_type, detach=detach)
+
+        self._init_groups()
+        self.group_indexes = self._get_group_indexes()
+        # self.after_groups_activation = nn.PReLU()
+        self.after_groups_activation = nn.Tanh()
+
+
+    def _init_groups(self):
+        for n_group, group in enumerate(self.groups):
+            new_layer = nn.Linear(group, group)
+            setattr(self, f'linear_group_{n_group}', new_layer)
+
+    def _get_group_indexes(self):
+        group_indexes = []
+        group_index_start = 0
+
+        for group in self.groups:
+            group_index_end = group_index_start + group
+            group_indexes.append([group_index_start, group_index_end])
+            group_index_start = group_index_start + group
+
+        return group_indexes
+
+    def _groups_forward(self, x):
+        # return x
+        group_outputs = []
+        for n_group, group_indexes in enumerate(self.group_indexes):
+            layer4group = getattr(self, f'linear_group_{n_group}')
+            group_index_start, group_index_end = group_indexes
+            output4group = layer4group(x[:, group_index_start:group_index_end])
+            group_outputs.append(output4group)
+
+        output4all_groups = torch.cat(group_outputs, dim=1)
+        del group_outputs
+
+        return output4all_groups
+
+    def _attention_layers_init(self):
+        for n_attention_layer in range(self.n_attention_layers):
+            if n_attention_layer < self.n_attention_layers_with_hidden_state:
+                layer_input_size = self.input_size + self.hidden_size
+            else:
+                layer_input_size = self.input_size
+
+            if n_attention_layer < self.n_attention_layers - 1:
+                layer_output_size = self.input_size
+            else:
+                layer_output_size = self.n_groups
+
+            new_attention_layer = nn.Linear(layer_input_size, layer_output_size)
+            # self.attention_layers_list.append(new_attention_layer)
+            setattr(self, f"attention_{n_attention_layer}", new_attention_layer)
+
+    def _apply_attention(self, x, attention_weights):
+        group_outputs = []
+
+        for n_group, group_indexes in enumerate(self.group_indexes):
+            group_index_start, group_index_end = group_indexes
+            # x[:, group_index_start:group_index_end] *= attention_weights[:, n_group]
+
+            group_output = x[:, group_index_start:group_index_end] * attention_weights[:, n_group]
+            group_outputs.append(group_output)
+
+        output = torch.cat(group_outputs, dim=1)
+
+        return output
+
+    def forward(self, x):
+        forward_results = {}
+
+        x = self._groups_forward(x)
+        x = self.after_groups_activation(x)
+
+        if self.n_attention_layers:
+            attention_logits = self._attention_forward(x, self.hidden)
+            forward_results['attention_weights'] = attention_logits
+            x = self._apply_attention(x, attention_logits)
+
+        x, forward_results_cell = self._cell_forward(x)
+        forward_results.update(forward_results_cell)
+
+        x = self._dense_forward(x)
+        x = torch.sigmoid(x)
+        forward_results['output'] = x
+        forward_results['hidden_state'] = self.hidden # torch.zeros(size=(1, 1))
+        # forward_results['attention_weights'] = torch.zeros(size=(1, 1))
+
+        return forward_results
+
+
+class TorchLogisticRegression(BaseModel):
+
+    def __init__(self, input_size, hidden_size, n_dense_layers, n_attention_layers,
+                 n_attention_layers_with_hidden_state, cell_type, detach=True):
+        super().__init__(input_size, hidden_size, n_dense_layers, n_attention_layers,
+                 n_attention_layers_with_hidden_state, cell_type, detach=detach)
+
+    def forward(self, x):
+        forward_results = {}
+
+        if self.n_attention_layers:
+            attention_logits = self._attention_forward(x, self.hidden)
+            x = self._apply_attention(x, attention_logits)
+
+        x, forward_results_cell = self._cell_forward(x)
+        forward_results.update(forward_results_cell)
+
+        x = self._dense_forward(x)
+        x = torch.sigmoid(x)
+        forward_results['output'] = x
+        forward_results['hidden_state'] = torch.zeros(size=(1, 1))
+        forward_results['attention_weights'] = torch.zeros(size=(1, 1))
+
+        return forward_results
+
+
+class PredictorCell(BaseModel):
 
     # def __init__(self, input_size=9, hidden_size=16, attention=1, alpha=0.01, eps=0.01, normalization=True):
     def __init__(self, input_size=9, hidden_size=16, attention=1, alpha=0.01, eps=0.01, normalization=True, classification=True,
@@ -263,7 +543,8 @@ features_pretty = ['gaze movement',
 ]
 
 index_names = ['time_step', 'window_size', 'batch_size', 'hidden_size', 'attention', 'normalization', 'n_repeat',
-               'n_attention_layers', 'n_dense_layers', 'n_attention_layers_with_hidden_state', 'cell_type', 'opt_type']
+               'n_attention_layers', 'n_dense_layers', 'n_attention_layers_with_hidden_state', 'cell_type', 'opt_type',
+               'target_type', 'every_step_training', 'n_init']
 
 def get_df_results(multi_index_all):
     df_results = pd.DataFrame(index=multi_index_all)

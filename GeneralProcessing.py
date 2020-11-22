@@ -11,6 +11,7 @@ pd.options.display.max_columns = 15
 pic_prefix = 'pic/'
 
 sessions_dict = joblib.load('data/sessions_dict')
+# sessions_dict = joblib.load('data/data_dict')
 gamedata_dict = joblib.load('data/gamedata_dict_old')
 
 # gamedata_dict.update(gamedata_dict_update)
@@ -19,6 +20,7 @@ gamedata_dict = joblib.load('data/gamedata_dict_old')
 sensors_columns_dict = {
     'hrm': ['hrm'],
     'datalog': ['resistance', 'muscle_activity'],
+    # 'datalog': ['muscle_activity'],
     'envibox': ['co2', 'temperature', 'humidity'],
     'eyetracker': ['gaze_x', 'gaze_y'],
     'mxy': ['mouse_dx', 'mouse_dy'],
@@ -48,7 +50,8 @@ for session_id, session_data_dict in sessions_dict.items():
 
     if session_id not in gamedata_dict:
         continue
-
+    
+    print("Processing!")
     moments_kills = gamedata_dict[session_id]['times_kills']
     moments_death = gamedata_dict[session_id]['times_is_killed']
     duration = 1
@@ -109,7 +112,7 @@ for session_id, session_data_dict in sessions_dict.items():
         event_intervals_list=events_intervals_list,
         n_rows=4,  # TODO: automatically adjust number of rows and cols
         n_cols=4,
-        figsize=(21, 15),
+        figsize=(21, 8),
         plot_suptitle=False,
         alpha=0.8,
         alpha_background=0.5,

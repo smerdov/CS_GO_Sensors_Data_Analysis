@@ -19,7 +19,7 @@ parser.add_argument('--TIMESTEP', default=10, type=float)
 parser.add_argument('--plot', default=0, type=int)
 if __debug__:
     print('SUPER WARNING!!! YOU ARE INTO DEBUG MODE', file=sys.stderr)
-    args = parser.parse_args(['--TIMESTEP=10', '--plot=1'])
+    args = parser.parse_args(['--TIMESTEP=20', '--plot=1'])
 else:
     args = parser.parse_args()
 
@@ -55,6 +55,7 @@ joblib.dump(columns_order, 'data/columns_order_0')
 # ss.inverse_transform(df_all.values)
 
 data_dict_resampled_merged_with_target_scaled = {}
+na_portions = []
 
 for player_id, df in data_dict_resampled_merged_with_target.items():
     for column in columns_order:
@@ -63,6 +64,7 @@ for player_id, df in data_dict_resampled_merged_with_target.items():
 
     df_scaled = df.loc[:, columns_order]
     df_scaled.loc[:, columns_order] = ss.transform(df_scaled.loc[:, columns_order])
+    na_portions.append(df_scaled.isnull().mean().values)
     df_scaled.fillna(0, inplace=True)
 
     for target_column in target_columns:

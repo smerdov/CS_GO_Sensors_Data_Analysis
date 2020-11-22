@@ -139,10 +139,12 @@ for player_id, player_data_dict in data_dict.items():
 
             plt.close()
             # df['muscle_activity'].plot()
-            df['muscle_activity'] = (df['muscle_activity'] - df['muscle_activity'].mean()).abs()
+            df['muscle_activity'] = (df['muscle_activity'] - df['muscle_activity'].median()).abs()
             # df['muscle_activity'].plot()
-            df['muscle_activity'] = clip_by_percentile(df['muscle_activity'], percentile=1)
+            df['muscle_activity'] = clip_by_percentile(df['muscle_activity'], percentile=0.2)
+            ### Visualization
             # df['muscle_activity'].plot()
+            # clip_by_percentile(df['muscle_activity'], percentile=0.2).plot()
 
 
         if data_source == 'schairlog':

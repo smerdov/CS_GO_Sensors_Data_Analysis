@@ -22,7 +22,7 @@ parser.add_argument('--max_sessions_per_player', default=3, type=int)
 # max_sessions_per_player = 10
 
 if __name__ == '__main__':
-    args = parser.parse_args()
+    args = parser.parse_args([])  # TODO: PAY ATTENTION
     session_duration = args.session_duration
     max_sessions_per_player = args.max_sessions_per_player
 

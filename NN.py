@@ -18,9 +18,10 @@ import time
 from sklearn.svm import SVC
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter, AutoMinorLocator
 from torch.nn import LSTM
-from Predictor import PredictorCell, BatchGenerator, features_pretty, get_df_results, index_names
+from Predictor import PredictorCell, BatchGenerator, features_pretty, get_df_results, index_names, TorchLogisticRegression, SplittedNN
 from config import pic_folder, TIMESTEP, TIMESTEP_STRING
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from recreate_dataset import recreate_dataset_func
 
 import argparse
 
@@ -40,14 +41,19 @@ parser.add_argument('--n_dense_layers_list', nargs='+', type=int)
 parser.add_argument('--n_attention_layers_with_hidden_state_list', nargs='+', type=int)
 parser.add_argument('--cell_type_list', nargs='+', type=str)
 parser.add_argument('--opt_list', nargs='+', type=str)
+parser.add_argument('--target_types', nargs='+', type=str)
 parser.add_argument('--target_verbose', action='store_true')
+parser.add_argument('--append_dumb_predict', action='store_true')
+parser.add_argument('--every_step_training_list', nargs='+', type=int)
 
 parser.add_argument('--attention_multiplier', default=1, type=int)
-parser.add_argument('--target_type', type=str, choices=['more_than_avg', 'more_than_median', 'more_than_before'],
-                    default='more_than_median')
+# parser.add_argument('--target_type', type=str, choices=['more_than_avg', 'more_than_median', 'more_than_before'],
+#                     default='more_than_median')
+parser.add_argument('--arch', default=10, type=str, choices=['predictor_cell', 'logistic_regression',
+                                                             'splitted_nn'])
 parser.add_argument('--scorer', default='auc', type=str)
 parser.add_argument('--n_epoches', default=100, type=int)
-parser.add_argument('--batches4epoch', default=20, type=int)
+parser.add_argument('--batches4epoch', default=5, type=int)
 parser.add_argument('--hidden_state_warmup', default=10, type=int)
 parser.add_argument('--max_patience', default=10, type=int)
 parser.add_argument('--n_repeat', default=5, type=int)
@@ -59,31 +65,59 @@ parser.add_argument('--recreate_dataset', default=0, type=int)
 parser.add_argument('--target_prefix', default='kills_proportion')
 parser.add_argument('--verbose', default=0, type=int)
 parser.add_argument('--warmup', default=10, type=int)
+parser.add_argument('--n_inits', default=1, type=int)
 use_dumb_predict = False
 # parser.add_argument('--opt', default='adam', type=str, choices=['adam', 'sgd'])
 
-def get_lr_by_epoch(epoch, base_lr=0.001, warmup=10):
+feature_columns = [
+    'gaze_movement', 'mouse_movement', 'mouse_scroll', 'hrm',
+    'muscle_activity',  # Questionable!  # But actually that's moreless ok
+    'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z',
+    'temperature', 'co2', 'humidity' #, 'resistance',
+]
+
+feature_categories = [
+    'Physical Activity',
+    'Chair Movement',
+    'Environment',
+]
+
+# feature_columns = ['gaze_movement', 'mouse_movement',
+#                    'mouse_scroll',
+#        # 'muscle_activity',  # Questionable!  # But actually that's moreless ok
+#        'acc_x', 'acc_y', 'acc_z', 'gyro_x', 'gyro_y', 'gyro_z',
+#        'hrm',
+#                    # 'temperature',
+#                    'co2',
+#        # 'humidity', 'resistance',
+# ]
+
+def get_lr_by_epoch(epoch, base_lr=0.001, warmup=10, decay=0.97):
     if epoch < warmup:
-        return base_lr * epoch / warmup
+        return base_lr * epoch / warmup * decay ** epoch
     else:
-        return base_lr
+        return base_lr * decay ** epoch
 
 def get_train_val_test_sizes(player_ids, train_proportion=0.55):
     train_size = int(len(player_ids) * train_proportion)
     val_size = int((len(player_ids) - train_size) * 0.5)
     test_size = len(player_ids) - train_size - val_size
+    print(f'train_size={train_size}, val_size={val_size}, test_size={test_size}')
 
     return train_size, val_size, test_size
 
-def get_final_target(target_past, target_future, args):
-    if args.target_type == 'more_than_median':
+def get_final_target(target_past, target_future, target_type, args):
+    if target_type == 'more_than_median':
         target = target_future - np.median(target_future)
-    elif args.target_type == 'more_than_avg':
+    elif target_type == 'more_than_avg':
         target = target_future - np.mean(target_future)
-    elif args.target_type == 'more_than_before':
+    elif target_type == 'more_than_avg_fair':
+        floating_mean = np.cumsum(target_future) / np.arange(1, len(target_future) + 1)
+        target = target_future - floating_mean
+    elif target_type == 'more_than_before':
         target = target_future - target_past
     else:
-        raise ValueError(f'I don\'t know target_type {args.target_type}')
+        raise ValueError(f'I don\'t know target_type {target_type}')
 
     return target
 
@@ -107,34 +141,49 @@ def plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_
     mode = get_mode(player_id, player_ids_train, player_ids_val, player_ids_test)
     n_features = len(features_pretty)
 
-    fig, ax = plt.subplots(5, 1, squeeze=False, figsize=(12, 14), sharex=True,
-                           gridspec_kw={'height_ratios': [1, 1, 0.2, 0.2, 0.2]})
+    # fig, ax = plt.subplots(5, 1, squeeze=False, figsize=(12, 14), sharex=True,
+    #                        gridspec_kw={'height_ratios': [0.5, 1, 0.2, 0.2, 0.2]})
+    fig, ax = plt.subplots(5, 1, squeeze=False, figsize=(24, 14.5), sharex=True,
+                           gridspec_kw={'height_ratios': [0.24, 0.3, 0.18, 0.18, 0.18]})
+                           # gridspec_kw={'height_ratios': [0.24, 0.3, 0.17, 0.17, 0.17]})
 
-    fontsize = 15
-    pos = ax[0, 0].imshow(attention_array.T, aspect='auto', cmap='Blues', vmin=0.2, vmax=0.8)
-    ax[0, 0].set_title('Input Attention', fontsize=fontsize + 2)
-    ax[0, 0].set_xlabel('Time Step Number', fontsize=fontsize)
-    ax[0, 0].set_yticks(np.arange(n_features))
-    ax[0, 0].set_yticklabels(features_pretty, fontsize=fontsize - 2)
+    fontsize = 24
+    # pos = ax[0, 0].imshow(attention_array.T, aspect='auto', cmap='Blues', vmin=0.0, vmax=1.0) # Blues  # TODO: check constants
+    pos = ax[0, 0].imshow(attention_array.T, aspect='auto', cmap='Greens', vmin=0.0, vmax=1.0) # Blues  # TODO: check constants
+    # ax[0, 0].set_title('Input Attention', fontsize=fontsize + 2)
+    ax[0, 0].set_title('Network Attention $\\mathbf{\\alpha}(t)$', fontsize=fontsize + 2)
+    # ax[0, 0].set_xlabel('Time Step Number', fontsize=fontsize)
+    # ax[0, 0].set_yticks(np.arange(n_features))
+    ax[0, 0].set_yticks(np.arange(len(feature_categories)))  # # TODO: check constant 0.5
+    # ax[0, 0].set_yticklabels(features_pretty, fontsize=fontsize - 2)
+    ax[0, 0].set_yticklabels(feature_categories, fontsize=fontsize)
     # ax[0, 0].set_xlim(0, len(attention_array.T))
-    ax[0, 0].set_xlim(0, len(attention_array))
+    ax[0, 0].set_xlim(0 - 0.5, len(attention_array) - 0.5)
+    ax[0, 0].set_ylim(-0.5, len(feature_categories) - 0.5)
+    ax[0, 0].tick_params(axis='y', which='both', left=False)
+    ax[0, 0].tick_params(axis='x', which='both', labelsize=fontsize, size=fontsize * 0.4)
     # ax[0].set_ytickslabels(np.arange(len(features)), features_pretty)
     # plt.yticks(np.arange(len(features)), features_pretty)
 
     divider = make_axes_locatable(ax[0, 0])
-    cax = divider.append_axes("right", size="2%", pad=0.06)
-    plt.colorbar(pos, cax=cax)
+    cax = divider.append_axes("right", size="1%", pad=0.06)
+    # plt.colorbar(pos, cax=cax, ticks=[0, 0.2, 0.4, 0.6, 0.8, 1])
+    cb = plt.colorbar(pos, cax=cax, ticks=[0, 0.5, 1])
+    cb.ax.tick_params(labelsize=fontsize-4)
     # colorbar = fig.colorbar(pos, pad=-2, ax=ax[0, 1])
 
     # colorbar.ax.set_ylabel('attention weight', rotation=270, labelpad=10)
 
     # ax_new = ax.a
-    ax[1, 0].imshow(hidden_array.T, aspect='auto', cmap=None)  # , vmin=0, vmax=1)
-    ax[1, 0].set_title('Hidden State', fontsize=fontsize + 2)
+    # ax[1, 0].imshow(hidden_array.T, aspect='auto', cmap=None)  # , vmin=0, vmax=1)
+    ax[1, 0].imshow(hidden_array.T, aspect='auto', cmap='RdBu')  #   # coolwarm # , vmin=0, vmax=1)
+    ax[1, 0].set_title('Hidden State $\\mathbf{h}(t)$', fontsize=fontsize + 2)
     ax[1, 0].set_ylabel('Neuron Number', fontsize=fontsize)
-    ax[1, 0].set_xlabel('Time Step Number', fontsize=fontsize)
+    # ax[1, 0].set_xlabel('Time Step Number', fontsize=fontsize)
+    ax[1, 0].tick_params(axis='y', which='both', left=False, labelleft=False, labelsize=fontsize, size=fontsize*0.4)
+    ax[1, 0].tick_params(axis='x', which='both', labelsize=fontsize, size=fontsize*0.4)
     divider = make_axes_locatable(ax[1, 0])
-    cax = divider.append_axes("right", size="2%", pad=0.08)
+    cax = divider.append_axes("right", size="1%", pad=0.08)
     fig.delaxes(cax)
     # ax[1].autoscale(tight=True)
     # ax[1].set_xlim(right=1)
@@ -143,9 +192,16 @@ def plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_
     # plt.close()
 
     # if args.scorer == roc_auc_score:
+    lw = 6.5
+    markersize = 85
+    ################## #
     if True:
-        ax[2, 0].plot(target_raw, label='Perfomance difference', color='teal')
-        ax[2, 0].set_title('Perfomance difference', fontsize=fontsize + 2)
+        # label = 'Future Game Performance'
+        label = 'Future Game Performance $p_{\\tau}(t)$'
+        ax[2, 0].plot(target_raw, label=label, color='teal', lw=lw)
+        ax[2, 0].set_title(label, fontsize=fontsize + 2)
+
+
         # ax[3, 0].plot(target, label='Binary Target', color='peru')
         breakpoints = list(np.nonzero(np.diff(target) != 0)[0])
         breakpoints = sorted(breakpoints)
@@ -169,25 +225,40 @@ def plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_
             breakpoint_end = breakpoints[n_breakpoint + 1]
             x_points = list(range(breakpoint_start, breakpoint_end + 1))
             ax[3, 0].plot(x_points, target[breakpoint_start:breakpoint_end + 1],
-                          label='Binary Target', color='peru')
-        ax[3, 0].scatter(list(range(len(target))), target, s=5, color='peru')
+                          label='Binary Target', color='peru', lw=lw)
+        ax[3, 0].scatter(list(range(len(target))), target, s=markersize, color='peru')
 
-        ax[3, 0].set_title('Binary Target', fontsize=fontsize + 2)
+        ax[3, 0].set_title('Binary Target $y_{\\tau}(t)$', fontsize=fontsize + 2)
         ax[3, 0].yaxis.set_major_locator(MultipleLocator(1))
-        ax[4, 0].plot(outputs_array, label='Predict', color='darkorange')
-        ax[4, 0].set_title('Predict', fontsize=fontsize + 2)
+
+        ax[4, 0].plot(outputs_array, label='Predict', color='olive', lw=lw)  # darkorange
+        # ax[4, 0].set_title('Network Prediction', fontsize=fontsize + 2)
+        ax[4, 0].set_title('Network Prediction $\\hat{y}_{\\tau}(t)$', fontsize=fontsize + 2)
+        # ax[4, 0].yaxis.set_major_locator(MultipleLocator(0.1))
+
+        # ax[2, 0].set_ylabel('$p_{\\tau}(t)$', fontsize=fontsize+2)
+        # ax[3, 0].set_ylabel('$y_{\\tau}(t)$', fontsize=fontsize+2)
+        # ax[4, 0].set_ylabel('$\\hat{y}_{\\tau}(t)$', fontsize=fontsize+2)
+
+        for n_row in range(2, 5):
+            ax[n_row, 0].yaxis.set_label_coords(-0.036, 0.5)
+        # ax[4, 0]
 
         for i in [2, 3, 4]:
             divider = make_axes_locatable(ax[i, 0])
-            cax = divider.append_axes("right", size="2%", pad=0.08)
+            cax = divider.append_axes("right", size="1%", pad=0.08)
             fig.delaxes(cax)
 
-    ax[-1, 0].set_xlabel('Time Step Number')
+    for i in range(2, 5):
+        ax[i, 0].tick_params(axis='both', which='major', labelsize=fontsize, size=fontsize*0.4)
+
+    ax[-1, 0].set_xlabel('Time Step Number', fontsize=fontsize)
 
     # plt.tight_layout(rect=[0, 0, 1.04, 1])
-    plt.tight_layout(rect=[0, 0, 1, 1])
+    plt.tight_layout(rect=[-0.004, 0 - 0.01, 1 + 0.0035, 1 + 0.005])
     # plt.show()
-    fig.savefig(pic_folder + f'attention/{mode}/input_attention_player_{player_id}_epoch_{n_epoch}_{suffix}.png')
+    # fig.savefig(pic_folder + f'attention/{mode}/input_attention_player_{player_id}_epoch_{n_epoch}_{suffix}.png')
+    fig.savefig(pic_folder + f'attention/{mode}/input_attention_player_{player_id}_epoch_{n_epoch}_{suffix}.pdf')
     plt.close()
 
 def plot_predict_fig(player_id, mode, scorer, outputs_array, target, target_raw, n_epoch, suffix):
@@ -218,23 +289,6 @@ def plot_cell_fig(player_id, hidden_array, cell_array, n_epoch, suffix):
     plt.tight_layout()
     plt.savefig(pic_folder + f'attention/cell_array_player_{player_id}_epoch_{n_epoch}_{suffix}.png')
     plt.close()
-
-def recreate_dataset_func(time_step):
-    TIMESTEP_STRING = f'{time_step}s'
-    print(TIMESTEP_STRING)
-    print('recreating_part_0')
-    command = f'python TimeseriesProcessing.py --TIMESTEP_STRING {TIMESTEP_STRING}'
-    os.system(command)
-    print('recreating_part_1')
-    command = f'python TimeseriesMerging.py --TIMESTEP {time_step}'
-    os.system(command)
-    print('recreating_part_2')
-    command = f'python TimeseriesAnalysis.py --TIMESTEP {time_step}'
-    os.system(command)
-    print('recreating_part_3')
-    command = f'python TimeseriesFinalPreprocessing.py --TIMESTEP {time_step}'
-    os.system(command)
-    print(f'Dataset for {TIMESTEP_STRING} has been recreated')
 
 def plot_target_fig(player_id, target, target_binary):
     plt.close()
@@ -309,7 +363,7 @@ def evaluate(
         attention,
         n_epoch,
         epoch_best,
-        best_attentions4model,
+        attentions4model,
         suffix,
         args,
 ):
@@ -324,11 +378,13 @@ def evaluate(
 
         mode = get_mode(player_id, player_ids_train, player_ids_val, player_ids_test)
         train_on_this_player = False
-        predictor.reset_hidden()
+        if hasattr(predictor, 'reset_hidden'):
+            predictor.reset_hidden()
 
         input = input_tensors_dict[player_id]['input']
         target4player = input_tensors_dict[player_id]['target']
-        target_raw = input_tensors_dict[player_id]['target_raw']
+        # target_raw = input_tensors_dict[player_id]['target_raw']
+        target_raw = input_tensors_dict[player_id]['target_future']  # TODO: PAY ATTENTION
         dumb_predict = input_tensors_dict[player_id]['dumb_predict']
 
         target_numpy = target4player.numpy()
@@ -353,15 +409,18 @@ def evaluate(
             tensor_input4step = input[[n_step]]
             target4step = target4player[[n_step]]
             # output, hidden_state, cell_state, attention_weights = predictor(tensor_input4step)
+            # t0 = time.time()
             forward_results = predictor(tensor_input4step)
+            # print(time.time() - t0)
             output = forward_results['output'][0]
-            hidden_state = forward_results['hidden_state']
+
             predict_list4player.append(output.detach())
             loss = args.criterion(output, target4step)
             # dumb_predict4step = dumb_predict[n_step]
 
-            # hidden_state_list4player.append(hidden_state.detach().numpy().ravel())
+            hidden_state = forward_results['hidden_state']
             hidden_state_list4player.append(hidden_state.numpy().ravel())  #  It should be detached already
+            # hidden_state_list4player.append(0)  #  It should be detached already
             if 'cell_value' in forward_results:
                 cell_state_list4player.append(forward_results['cell_value'].detach().numpy().ravel())
             if attention:
@@ -385,16 +444,18 @@ def evaluate(
 
         if attention:
             attention_array = np.array(attention_weights_list4player)
-            # if n_epoch == epoch_best:
-            #     best_attentions4model[player_id] = attention_array.mean(axis=0)  # Not sure if it's working correctly
-            #     # attention_sum_list.append(attention_array.mean(axis=0))
+            if (score4player > 0.55):
+                # if n_epoch == epoch_best:
+                attentions4model[player_id] = attention_array.mean(axis=0)  # Not sure if it's working correctly
+                # attention_sum_list.append(attention_array.mean(axis=0))
 
-            if args.plot_attention and (n_epoch % args.plot_attention == 0) and n_epoch:
-                outputs_array = np.array(outputs_list4player)
-                hidden_array = np.array(hidden_state_list4player)
-                plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_val, player_ids_test,
-                                   features_pretty, outputs_array, hidden_array, target_raw, target4player, args,
-                                   n_epoch, suffix)
+            if args.plot_attention and (n_epoch % args.plot_attention == 0) and n_epoch and (score4player > 0.6):
+                if all(attention_array.mean(axis=0) > 0.15):
+                    outputs_array = np.array(outputs_list4player)
+                    hidden_array = np.array(hidden_state_list4player)
+                    plot_attention_fig(player_id, attention_array, player_ids_train, player_ids_val, player_ids_test,
+                                       features_pretty, outputs_array, hidden_array, target_raw, target4player, args,
+                                       n_epoch, suffix)
 
         if args.plot_predict:
             outputs_array = np.array(outputs_list4player)
@@ -412,14 +473,19 @@ def evaluate(
 
     return loss4epoch_dict, score4epoch_dict, dumb_score4epoch_dict
 
-def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_scaled, target_column_future, target_column_past, target_columns, args):
+
+
+def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_scaled, target_column_future,
+                           target_column_past, target_columns, target_type, args):
     input_tensors_dict = {}
+    target_means = []
 
     for player_id in player_ids:
         train_tensors4player = {}
         df4train = data_dict_resampled_merged_with_target_scaled[player_id].copy()
         # mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
-        if args.target_type =='more_than_median':
+        # if (args.target_type =='more_than_median') or (args.target_type =='more_than_avg'):
+        if (target_type =='more_than_median') or (target_type =='more_than_avg'):
             mask2keep = df4train[target_column_future].notnull()
         else:
             mask2keep = df4train[target_column_future].notnull() & df4train[target_column_past].notnull()
@@ -434,7 +500,7 @@ def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_sc
         target_future = df4train[target_column_future].values
         target_past = df4train[target_column_past].values
         # print(target_past)
-        target = get_final_target(target_past=target_past, target_future=target_future, args=args)
+        target = get_final_target(target_past=target_past, target_future=target_future, target_type=target_type, args=args)
         dumb_predict = get_dumb_predict(target_past=target_past, target_future=target_future)
         margin = 0  # 0
         target_binary = (target >= margin) * 1
@@ -442,10 +508,15 @@ def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_sc
             print(target_future)
             print(f'target_binary={target_binary}')
             print(f'target_binary.mean()={target_binary.mean()}')
+        target_means.append(target_binary.mean())
         # print(f'target_binary.mean()={target_binary.mean()}')
 
         df4train.drop(columns=target_columns, inplace=True)
+        df4train = df4train.loc[:, feature_columns] # TODO: check
         df4train.reset_index(drop=True, inplace=True)
+        if args.append_dumb_predict:
+            df4train['dumb_predict'] = dumb_predict
+
         features = list(df4train.columns)
         # n_features = train_tensors4player['input'].shape[1]
         n_features = len(features)
@@ -463,27 +534,38 @@ def get_input_tensors_dict(player_ids, data_dict_resampled_merged_with_target_sc
         else:
             train_tensors4player['target'] = torch.Tensor(target)  # FOR logloss metric
             train_tensors4player['target_raw'] = torch.Tensor(target)  # FOR logloss metric
+
+        train_tensors4player['target_future'] = torch.Tensor(target_future)
         input_tensors_dict[player_id] = train_tensors4player
+
+    target_mean_mean = np.mean(target_means)
+    print(f'target_mean_mean = {target_mean_mean}')
+
+    if args.verbose:
+        print(f'n_features={n_features}')
 
     return input_tensors_dict, n_features
 
 
 def run_experiment(time_step, window_size, batch_size, hidden_size, attention, normalization, n_repeat,
                    n_attention_layers, n_dense_layers, n_attention_layers_with_hidden_state, cell_type, opt_type,
-                   super_suffix, train_size, val_size, args):
-    best_attentions_dict = {}
+                   target_type, every_step_training, n_init,
+                   super_suffix, player_ids_train, player_ids_val, player_ids_test, args):
+    # best_attentions_dict = {}
+    random_suffix4suffix = np.random.choice(1000)
     suffix = f'{time_step}_{window_size}_{batch_size}_{hidden_size}_{attention}_{normalization}_{n_repeat}_' \
-             f'{n_attention_layers}_{n_dense_layers}_{n_attention_layers_with_hidden_state}_{cell_type}_{opt_type}_{super_suffix}'
+             f'{n_attention_layers}_{n_dense_layers}_{n_attention_layers_with_hidden_state}_{cell_type}_{opt_type}_{n_init}_hash{random_suffix4suffix}_{super_suffix}'
     # print(suffix)
     patience = 0
     val_score_best = 0
     train_score_best = 0
     test_score_best = 0
     epoch_best = 0
+    attentions4model_best = 0
     stop_learning = False
-    best_attentions4model = {}
 
-    player_ids_train, player_ids_val, player_ids_test = get_players_splits(args.player_ids, train_size, val_size)
+
+    # player_ids_train, player_ids_val, player_ids_test = get_players_splits(args.player_ids, train_size, val_size)
     data_dict_resampled_merged_with_target_scaled = joblib.load(
         f'data/data_dict_resampled_merged_with_target_scaled_{int(time_step)}')
 
@@ -496,22 +578,39 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
         args.player_ids,
         data_dict_resampled_merged_with_target_scaled,
         target_column_future,
-        target_column_past, target_columns, args)
+        target_column_past, target_columns, target_type, args)
 
     loss_list_dict = get_dict_of_lists_for_logging()
     score_list_dict = get_dict_of_lists_for_logging()
     dumb_score_list_dict = get_dict_of_lists_for_logging()
 
-    predictor = PredictorCell(input_size=n_features, hidden_size=hidden_size, attention=attention,
-                              normalization=normalization, classification=args.classification,
-                              n_attention_layers=n_attention_layers, n_dense_layers=n_dense_layers,
-                              n_attention_layers_with_hidden_state=n_attention_layers_with_hidden_state,
-                              cell_type=cell_type)
+    if args.arch == 'predictor_cell':
+        predictor = PredictorCell(input_size=n_features, hidden_size=hidden_size, attention=attention,
+                                  normalization=normalization, classification=args.classification,
+                                  n_attention_layers=n_attention_layers, n_dense_layers=n_dense_layers,
+                                  n_attention_layers_with_hidden_state=n_attention_layers_with_hidden_state,
+                                  cell_type=cell_type)
+    elif args.arch == 'logistic_regression':
+        predictor = TorchLogisticRegression(input_size=n_features, hidden_size=hidden_size, n_dense_layers=n_dense_layers,
+                                            cell_type=cell_type, n_attention_layers=n_attention_layers, n_attention_layers_with_hidden_state=n_attention_layers_with_hidden_state)
+    elif args.arch == 'splitted_nn':
+        predictor = SplittedNN(input_size=n_features, hidden_size=hidden_size,
+                                            n_dense_layers=n_dense_layers,
+                                            cell_type=cell_type, n_attention_layers=n_attention_layers,
+                                            n_attention_layers_with_hidden_state=n_attention_layers_with_hidden_state,
+                                            # groups=(5,6,3,1))
+                                            groups=(5,6,3))
+                                            # groups=(4,6,2))
+                                            # groups=(12,))
+
+        # print(predictor.parameters())
+        # print(predictor.state_dict())
+
     if opt_type == 'adam':
         base_lr = 1e-3
         opt = Adam(predictor.parameters())
     elif opt_type == 'sgd':
-        base_lr = 1e-1
+        base_lr = 1e-2
         opt = SGD(predictor.parameters(), lr=base_lr, momentum=0.9, weight_decay=1e-4, nesterov=True)
     else:
         raise ValueError(f'optimizer {args.opt} is not supported')
@@ -537,7 +636,9 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
 
         for n_batch in range(args.batches4epoch):
             # noinspection PyUnresolvedReferences
-            predictor.reset_hidden()
+            if hasattr(predictor, 'reset_hidden'):
+                predictor.reset_hidden()
+
             batch = batch_generator.get_batch(batch_size)
             batch_input, batch_target = batch
             batch_size_actual = len(batch_input)
@@ -569,13 +670,16 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
                     opt.zero_grad()
                     loss = args.criterion(output, target4step) / (batch_size_actual - args.hidden_state_warmup)
                     loss.backward()
-                    opt.step()  # TODO: think where should it be (here or after the loop)
+                    if every_step_training:
+                        opt.step()  # TODO: think where should it be (here or after the loop)
             else:
-                # opt.step()
-                pass
-
+                if not every_step_training:
+                    opt.step()
+                # pass
+        # opt.step()  # TODO: I changed it
         ### EVALUATION ON EVERY PLAYER
         # for player_id in player_ids:
+        attentions4model = {}
         loss4epoch_dict, score4epoch_dict, dumb_score4epoch_dict = evaluate(
             predictor,
             args.player_ids,
@@ -586,7 +690,7 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
             attention,
             n_epoch,
             epoch_best,
-            best_attentions4model,
+            attentions4model,
             suffix,
             args,
         )
@@ -608,6 +712,8 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
                         val_score_best = np.mean(score4epoch_dict['val'])
                         test_score_best = np.mean(score4epoch_dict['test'])
                         train_score_best = np.mean(score4epoch_dict['train'])
+                        attentions4model_best = np.mean(list(attentions4model.values()), axis=0)
+
                         epoch_best = n_epoch
                         patience = 0
                     else:
@@ -621,7 +727,8 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
                 dumb_score_list_dict[mode].append(dumb_score4mode)
 
     index_array = [[time_step], [window_size], [batch_size], [hidden_size], [attention], [normalization], [n_repeat],
-                   [n_attention_layers], [n_dense_layers], [n_attention_layers_with_hidden_state], [cell_type], [opt_type]]
+                   [n_attention_layers], [n_dense_layers], [n_attention_layers_with_hidden_state], [cell_type], [opt_type], [target_type],
+                   [every_step_training], [n_init]]
     multi_index = pd.MultiIndex.from_arrays(index_array, names=index_names)
 
     df_results4experiment = pd.DataFrame(index=multi_index)
@@ -638,7 +745,8 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
     print(df_results4experiment.reset_index())
 
     # attention_sum_list_dict[suffix] = attention_sum_list
-    best_attentions_dict[suffix] = best_attentions4model  # TODO: WHAT TO DO?
+    # best_attentions_dict[suffix] = attentions4model_best  # TODO: WHAT TO DO?
+    # attentions4model_best  # TODO: WHAT TO DO?
 
     # if args.plot_cell:
     #     for mode in ['train', 'val', 'test']:
@@ -651,7 +759,7 @@ def run_experiment(time_step, window_size, batch_size, hidden_size, attention, n
     #             plt.savefig(pic_folder + f'_{mode}_auc_list_last_{suffix}.png')
     #             plt.close()
 
-    return df_results4experiment, suffix
+    return df_results4experiment, suffix, attentions4model_best
 
 def run_experiments(
         time_step_list,
@@ -667,6 +775,7 @@ def run_experiments(
     # df_results = get_df_results(multi_index_all)
     # df_results = pd.DataFrame()
     df_results_list = []
+    attentions_list = []
     suffixes = []
 
     for time_step in time_step_list:
@@ -685,22 +794,35 @@ def run_experiments(
             args.n_attention_layers_with_hidden_state_list,
             args.cell_type_list,
             args.opt_list,
+            args.target_types,
+            args.every_step_training_list,
         )
 
         for group in groups:
             window_size, batch_size, hidden_size, attention, normalization, n_repeat, n_attention_layers,\
-                n_dense_layers, n_attention_layers_with_hidden_state, cell_type, opt_type = group
+                n_dense_layers, n_attention_layers_with_hidden_state, cell_type, opt_type, target_type, every_step_training = group
+
 
             print(f"Experiment {group}")
+            player_ids_train, player_ids_val, player_ids_test = get_players_splits(args.player_ids, args.train_size, args.val_size)
 
-            df_results4experiment, suffix = run_experiment(time_step, window_size, batch_size, hidden_size, attention,
-                                                   normalization, n_repeat, n_attention_layers, n_dense_layers,
-                                                   n_attention_layers_with_hidden_state, cell_type, opt_type, super_suffix,
-                                                   args.train_size, args.val_size, args)
-            # print(df_results4experiment)
-            # df_results = df_results.append(df_results4experiment)
-            df_results_list.append(df_results4experiment)
-            suffixes.append(suffix)
+            for n_init in range(args.n_inits):
+                df_results4experiment, suffix, attentions4model_best = run_experiment(time_step, window_size, batch_size, hidden_size, attention,
+                                               normalization, n_repeat, n_attention_layers, n_dense_layers,
+                                               n_attention_layers_with_hidden_state, cell_type, opt_type,
+                                               target_type, every_step_training, n_init, super_suffix,
+                                               player_ids_train, player_ids_val, player_ids_test, args)
+                # print(df_results4experiment)
+                # df_results = df_results.append(df_results4experiment)
+                print(attentions4model_best)
+                if attentions4model_best.mean() > 0.1:
+                    attentions_list.append(attentions4model_best)
+                df_results_list.append(df_results4experiment)
+                suffixes.append(suffix)
+
+        print(np.mean(attentions_list, axis=0))
+        joblib.dump(attentions_list, 'attentions_list_9')
+
 
     return df_results_list, suffixes
 
@@ -715,6 +837,7 @@ if __name__ == '__main__':
     normalization_list = args.normalization_list
     super_suffix = args.super_suffix
     n_repeat_list = list(range(args.n_repeat))
+    # args.plot_attention = 50
 
     args.train_size, args.val_size, args.test_size = get_train_val_test_sizes(args.player_ids)
     # multi_index_all = pd.MultiIndex.from_product([time_step_list, window_size_list, batch_size_list,

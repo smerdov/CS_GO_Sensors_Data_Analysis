@@ -164,6 +164,7 @@ def plot_measurements_pairwise(
     # analysers_names = list(OrderedDict.fromkeys(analysers_names))  # To preserve uniqueness and order
     # pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.png'
     pic_path = pic_prefix + 'measurements_' + 'pairwise' + f'_{session_id}' + '.png'
+    # pic_path = pic_prefix + 'measurements_' + 'pairwise' + f'_{session_id}' + '.pdf'
 
     fig, ax_list = plt.subplots(n_rows, n_cols, sharex=sharex, figsize=figsize, squeeze=False)
     rows_cols_list = itertools.product(range(n_rows), range(n_cols))
@@ -257,7 +258,8 @@ def plot_measurements(
 
     analysers_names = [analyser.sensor_name for analyser, column in analyser_column_pairs_list]
     analysers_names = list(OrderedDict.fromkeys(analysers_names))  # To preserve uniqueness and order
-    pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.png'
+    # pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.png'
+    pic_path = pic_prefix + 'measurements_' + '_'.join(analysers_names) + f'_{session_id}' + '.pdf'
 
     fig, ax_list = plt.subplots(n_rows, n_cols, sharex=sharex, figsize=figsize, squeeze=False)
     rows_cols_list = itertools.product(range(n_rows), range(n_cols))
